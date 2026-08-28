@@ -3,7 +3,8 @@
 import { Html } from "@react-three/drei";
 import type { AgentStatus } from "@/lib/types";
 
-import { ACTIVITY_LABEL, AGENT_SIGNAL, STATUS_VISUAL } from "../signal";
+import type { AgentVisualState } from "../semantic";
+import { AGENT_SIGNAL, STATUS_VISUAL } from "../signal";
 import AgentDummy from "../furniture/AgentDummy";
 import Desk from "../furniture/Desk";
 import DeskTrinket from "../furniture/DeskTrinket";
@@ -15,7 +16,7 @@ interface AgentStationProps {
   agentId: string;
   name: string;
   status: AgentStatus;
-  activity: string;
+  visualState: AgentVisualState;
   position: [number, number, number];
   // rotate the whole station on the floor (90° steps)
   facing?: Facing;
@@ -34,13 +35,12 @@ export default function AgentStation({
   agentId,
   name,
   status,
-  activity,
+  visualState,
   position,
   facing = "south",
 }: AgentStationProps) {
   const visual = STATUS_VISUAL[status];
   const signal = AGENT_SIGNAL[agentId] ?? "#60a5fa";
-  const activityLine = activity && activity !== "Idle" ? activity : "Idle";
 
   // "Empty" only when no status is wired yet; normal run always has one.
   const hasSignal = status === "WORKING" || status === "WAITING" || status === "ERROR";
@@ -56,12 +56,17 @@ export default function AgentStation({
           position={[0.18, 0.74, -0.28]}
           screenGlow={visual.screen}
           screenColor={signal}
+          mode={visualState.mode}
         />
         <Keyboard position={[0.05, 0.8, 0.05]} />
         <DeskTrinket position={[-0.72, 0.8, 0.05]} />
 
         {/* agent placeholder sits in the chair area */}
-        <AgentDummy position={[0, 0, 1.15]} color={signal} />
+        <AgentDummy
+          position={[0, 0, 1.15]}
+          color={signal}
+          mode={visualState.mode}
+        />
 
         {/* status indicator: a floating low-poly beacon above the monitor */}
         <group position={[0, 1.55, -0.28]}>
@@ -103,7 +108,7 @@ export default function AgentStation({
               className="text-[9px] font-medium tracking-wide"
               style={{ color: visual.system }}
             >
-              {ACTIVITY_LABEL[agentId] ?? "Agent"} · {activityLine}
+              {visualState.mode.toUpperCase()} · {visualState.label}
             </span>
           </div>
         </Html>

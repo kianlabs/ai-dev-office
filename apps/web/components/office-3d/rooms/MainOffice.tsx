@@ -3,6 +3,7 @@
 import type { AgentRecord } from "@/lib/types";
 
 import Plant from "../furniture/Plant";
+import { deriveAgentVisualState } from "../semantic";
 import AgentStation from "../stations/AgentStation";
 import MeetingRoom from "./MeetingRoom";
 import ServerRoom from "./ServerRoom";
@@ -77,13 +78,23 @@ export default function MainOffice({ agents }: MainOfficeProps) {
       {/* 5 live agent workstations */}
       {STATION_PLACEMENT.map((s) => {
         const agent = byId.get(s.agentId);
+
+        const visualState = agent
+          ? deriveAgentVisualState(agent)
+          : {
+              mode: "idle" as const,
+              label: "Idle",
+              active: false,
+              attention: false,
+            };
+
         return (
           <AgentStation
             key={s.agentId}
             agentId={s.agentId}
             name={s.name}
             status={agent?.status ?? "IDLE"}
-            activity={agent?.activity ?? "Idle"}
+            visualState={visualState}
             position={s.pos}
             facing={s.facing}
           />
