@@ -41,5 +41,8 @@ class Settings(BaseSettings):
     qa_mode: str = "mock"
     qa_timeout: int = 180
 
+    # PULSE execution mode: "mock" or "deterministic"
+    pulse_mode: str = "mock"
+
 
 settings = Settings()

@@ -8,7 +8,7 @@ from typing import Any
 from ai_dev_agent_atlas import MockAtlasExecutor
 from ai_dev_agent_core import AgentRegistry, ExecutionContext
 from ai_dev_agent_forge import HermesExecutor, MockForgeExecutor
-from ai_dev_agent_pulse import MockPulseExecutor
+from ai_dev_agent_pulse import DeterministicPulseExecutor, MockPulseExecutor
 from ai_dev_agent_qa import DeterministicQAExecutor, MockQAExecutor
 from ai_dev_agent_scout import MockScoutExecutor
 from ai_dev_shared import AGENT_COLORS, AGENT_ROLES, Task
@@ -51,6 +51,21 @@ class QAFactory:
 
 
 @dataclass(frozen=True)
+class PulseFactory:
+    """Select mock or deterministic PULSE executor."""
+
+    agent_id: str = "pulse"
+
+    def __call__(self, task: Task, ctx: ExecutionContext) -> Any:
+        from .config import settings
+
+        if settings.pulse_mode.lower() == "deterministic":
+            return DeterministicPulseExecutor(task, ctx)
+
+        return MockPulseExecutor(task, ctx)
+
+
+@dataclass(frozen=True)
 class ForgeFactory:
     """Factory that selects MockForgeExecutor or HermesExecutor based on config."""
 
@@ -89,7 +104,7 @@ def build_registry() -> AgentRegistry:
     # Register ATLAS, SCOUT and PULSE with mock factories.
     # FORGE and QA have selectable execution modes.
     for agent_id, cls in _MOCK_CLASSES.items():
-        if agent_id in {"forge", "qa"}:
+        if agent_id in {"forge", "qa", "pulse"}:
             continue
 
         registry.register(
@@ -104,6 +119,13 @@ def build_registry() -> AgentRegistry:
         name=_name("qa"),
         role=AGENT_ROLES["qa"],
         color=AGENT_COLORS["qa"],
+    )
+
+    registry.register(
+        PulseFactory(),
+        name=_name("pulse"),
+        role=AGENT_ROLES["pulse"],
+        color=AGENT_COLORS["pulse"],
     )
 
     # Register FORGE with smart factory (mock or hermes based on FORGE_MODE)
