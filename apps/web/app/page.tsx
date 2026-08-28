@@ -9,6 +9,7 @@ import CreateTaskForm from "@/components/create-task";
 import StatCard from "@/components/stat-card";
 import TasksPanel from "@/components/tasks-panel";
 import TopBar from "@/components/top-bar";
+import ClientOffice from "@/components/office-3d/ClientOffice";
 
 function TaskIcon() {
   return (
@@ -58,52 +59,54 @@ export default function Home() {
     <div className="flex h-screen flex-col">
       <TopBar connected={room.connected} taskCount={room.stats.total} />
 
-      <main className="flex flex-1 overflow-hidden">
-        {/* Left column: control */}
-        <div className="flex w-[340px] flex-col gap-4 overflow-y-auto border-r border-line bg-panel2/50 p-4">
-          <CreateTaskForm
-            disabled={!room.connected}
-            onCreate={room.addTask}
-          />
-          <div className="min-h-0 flex-1">
-            <TasksPanel tasks={room.tasks} />
-          </div>
+      {/* stats row */}
+      <div className="grid grid-cols-2 gap-3 border-b border-line bg-panel2/40 p-3 md:grid-cols-4">
+        {stats.map((s) => (
+          <StatCard key={s.label} {...s} />
+        ))}
+      </div>
+
+      {/* main row: 3D office (primary) + activity feed */}
+      <main className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="relative min-w-0 flex-1 p-3">
+          <ClientOffice agents={room.agents} />
         </div>
 
-        {/* Center: stats + agent bay */}
-        <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            {stats.map((s) => (
-              <StatCard key={s.label} {...s} />
-            ))}
-          </div>
-
-          <section>
-            <div className="mb-2 flex items-center justify-between">
-              <h2 className="font-mono text-sm font-semibold uppercase tracking-wider text-slate-300">
-                Agent Bay
-              </h2>
-              <span className="font-mono text-xs text-slate-500">
-                {room.agents.filter((a) => a.status !== "IDLE").length}/5 active
-              </span>
-            </div>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {orderedAgents.map((agent) => (
-                <AgentCard
-                  key={agent.agent_id}
-                  agent={agent}
-                  isOrchestrator={agent.agent_id === "atlas"}
-                />
-              ))}
-            </div>
-          </section>
-        </div>
-
-        {/* Right: activity feed */}
-        <aside className="hidden w-[380px] border-l border-line bg-panel2/50 p-4 lg:block">
+        <aside className="hidden w-[360px] shrink-0 border-l border-line p-3 lg:block">
           <ActivityFeed items={room.activity} />
         </aside>
       </main>
+
+      {/* bottom: task controls / secondary information */}
+      <div className="grid max-h-[38%] grid-cols-1 gap-3 overflow-y-auto border-t border-line bg-panel2/40 p-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="max-h-full overflow-y-auto">
+          <CreateTaskForm disabled={!room.connected} onCreate={room.addTask} />
+        </div>
+
+        <div className="max-h-full overflow-y-auto">
+          <TasksPanel tasks={room.tasks} />
+        </div>
+
+        <div className="max-h-full overflow-y-auto">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="font-mono text-sm font-semibold uppercase tracking-wider text-slate-300">
+              Agent Bay
+            </h2>
+            <span className="font-mono text-xs text-slate-500">
+              {room.agents.filter((a) => a.status !== "IDLE").length}/5 active
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {orderedAgents.map((agent) => (
+              <AgentCard
+                key={agent.agent_id}
+                agent={agent}
+                isOrchestrator={agent.agent_id === "atlas"}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
