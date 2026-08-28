@@ -221,9 +221,68 @@ SCOUT RESEARCH CONTEXT:
 No research brief was provided.
 """
 
+        repair = self.ctx.shared.get("repair")
+
+        if repair:
+            attempt = repair.get("attempt", "?")
+            max_attempts = repair.get("max_attempts", "?")
+            qa_report = repair.get("qa_report") or {}
+
+            failed_checks = qa_report.get("failed_checks", [])
+            details = qa_report.get("details", [])
+
+            check_lines = "\n".join(
+                f"- {name}"
+                for name in failed_checks
+            ) or "- Unknown QA failure"
+
+            detail_lines = []
+
+            for detail in details:
+                name = str(detail.get("name", "unknown"))
+                error = str(detail.get("error", "")).strip()
+                output = str(detail.get("output", "")).strip()
+
+                detail_lines.append(
+                    f"- {name}: {error or 'check failed'}"
+                )
+
+                if output:
+                    detail_lines.append(
+                        f"  output: {output}"
+                    )
+
+            repair_details = (
+                "\n".join(detail_lines)
+                or "- No additional QA details available"
+            )
+
+            repair_block = f"""
+REPAIR MODE:
+This is repair attempt {attempt}/{max_attempts}.
+
+Previous QA failed these checks:
+{check_lines}
+
+QA failure details:
+{repair_details}
+
+Repair the EXISTING implementation in /workspace based on the QA evidence above.
+Do not restart from scratch unless the existing implementation cannot reasonably
+be repaired.
+Re-run or inspect the relevant behavior before reporting success.
+"""
+        else:
+            repair_block = """
+REPAIR MODE:
+This is the initial implementation, not a repair attempt.
+"""
+
         return f"""You are FORGE, a coding agent working on a single task.
 
 {research_block}
+
+{repair_block}
 
 CRITICAL WORKSPACE CONSTRAINTS:
 - Your sandbox working directory is exactly: /workspace

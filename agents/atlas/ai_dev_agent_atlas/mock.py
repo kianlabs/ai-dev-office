@@ -75,6 +75,10 @@ class MockAtlasExecutor:
 
         qa_score: str | None = None
         health_status: str | None = None
+        forge_failed = False
+
+        max_repair_attempts = 2
+        repair_attempts = 0
 
         for agent_id in plan.agents:
             reason = plan.reasons.get(agent_id, "selected by ATLAS")
@@ -93,7 +97,17 @@ class MockAtlasExecutor:
                     health = ev.meta.get("health") or {}
                     health_status = health.get("status")
 
+                if (
+                    agent_id == "forge"
+                    and ev.kind == EventKind.RESULT
+                    and ev.task_status == TaskStatus.FAILED
+                ):
+                    forge_failed = True
+
                 yield await r.tick(ev)
+
+            if forge_failed:
+                break
 
             if agent_id == "scout":
                 research = ctx.shared.get("research")
@@ -104,6 +118,97 @@ class MockAtlasExecutor:
                             meta={"research": research},
                         )
                     )
+
+        repair_allowed = (
+            "forge" in plan.agents
+            and "qa" in plan.agents
+        )
+
+        while (
+            repair_allowed
+            and qa_score == "FAIL"
+            and not forge_failed
+            and repair_attempts < max_repair_attempts
+        ):
+            repair_attempts += 1
+
+            qa_report = ctx.shared.get("qa_report") or {
+                "score": "FAIL",
+                "failed_checks": [],
+                "details": [],
+            }
+
+            repair_state = {
+                "attempt": repair_attempts,
+                "max_attempts": max_repair_attempts,
+                "qa_report": qa_report,
+            }
+
+            ctx.shared["repair"] = repair_state
+
+            yield await r.tick(
+                r.working(
+                    f"Preparing repair attempt "
+                    f"{repair_attempts}/{max_repair_attempts}",
+                    task_status=TaskStatus.RUNNING,
+                )
+            )
+
+            yield await r.tick(
+                r.say(
+                    "QA failure routed back to FORGE by ATLAS",
+                    meta={"repair": repair_state},
+                )
+            )
+
+            forge_failed = False
+
+            async for ev in ctx.dispatch_stream("forge"):
+                if (
+                    ev.kind == EventKind.RESULT
+                    and ev.task_status == TaskStatus.FAILED
+                ):
+                    forge_failed = True
+
+                yield await r.tick(ev)
+
+            if forge_failed:
+                break
+
+            qa_score = None
+
+            async for ev in ctx.dispatch_stream("qa"):
+                if ev.kind == EventKind.QA_RESULT:
+                    qa_score = ev.score
+
+                yield await r.tick(ev)
+
+            if qa_score == "PASS":
+                ctx.shared["repair"]["resolved"] = True
+                break
+
+        if forge_failed:
+            yield await r.tick(
+                r.working(
+                    "Reviewing failed FORGE execution",
+                    task_status=TaskStatus.REVIEW,
+                )
+            )
+            yield await r.tick(
+                r.review("FORGE execution failed.")
+            )
+            yield await r.tick(r.idle("Idle"))
+            yield await r.tick(
+                r.result(
+                    TaskStatus.FAILED,
+                    "Task failed during FORGE execution.",
+                    meta={
+                        "error": "FORGE execution failed",
+                        "repair_attempts": repair_attempts,
+                    },
+                )
+            )
+            return
 
         if qa_score == "FAIL":
             yield await r.tick(
@@ -163,6 +268,7 @@ class MockAtlasExecutor:
                     "agents": list(plan.agents),
                     "qa": qa_score,
                     "health": health_status,
+                    "repair_attempts": repair_attempts,
                 },
             )
         )

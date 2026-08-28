@@ -88,8 +88,18 @@ class MockRuntime:
     def emit_subtasks(self, subtasks: list[Subtask], message: str) -> AgentEvent:
         return self._ev(EventKind.SUBTASKS, message, subtasks=subtasks)
 
-    def qa_result(self, score: str, message: str) -> AgentEvent:
-        return self._ev(EventKind.QA_RESULT, message, score=score)
+    def qa_result(
+        self,
+        score: str,
+        message: str,
+        meta: dict[str, Any] | None = None,
+    ) -> AgentEvent:
+        return self._ev(
+            EventKind.QA_RESULT,
+            message,
+            score=score,
+            meta=meta or {},
+        )
 
     def health(self, message: str, meta: dict[str, Any] | None = None) -> AgentEvent:
         return self._ev(EventKind.HEALTH, message, meta=meta or {})

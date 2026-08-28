@@ -62,10 +62,25 @@ class DeterministicQAExecutor:
         )
 
         if not workspace.is_dir():
+            qa_report = {
+                "score": "FAIL",
+                "failed_checks": ["workspace"],
+                "details": [
+                    {
+                        "name": "workspace",
+                        "error": f"workspace missing: {workspace}",
+                        "output": "",
+                    }
+                ],
+            }
+
+            ctx.shared["qa_report"] = qa_report
+
             yield await r.tick(
                 r.qa_result(
                     "FAIL",
                     f"QA gate: FAIL — workspace missing: {workspace}",
+                    meta={"qa_report": qa_report},
                 )
             )
             yield await r.tick(r.idle("Idle"))
@@ -91,25 +106,49 @@ class DeterministicQAExecutor:
                             f"verified {len(entries)} workspace file(s)"
                         )
                     )
+                    qa_report = {
+                        "score": "PASS",
+                        "failed_checks": [],
+                        "details": [],
+                    }
+
+                    ctx.shared["qa_report"] = qa_report
+
                     yield await r.tick(
                         r.qa_result(
                             "PASS",
                             "QA gate: PASS — workspace artifacts present; "
                             "no applicable test/typecheck/lint scripts detected",
+                            meta={"qa_report": qa_report},
                         )
                     )
                 else:
+                    qa_report = {
+                        "score": "FAIL",
+                        "failed_checks": ["workspace-artifacts"],
+                        "details": [
+                            {
+                                "name": "workspace-artifacts",
+                                "error": "FORGE workspace is empty",
+                                "output": "",
+                            }
+                        ],
+                    }
+
+                    ctx.shared["qa_report"] = qa_report
+
                     yield await r.tick(
                         r.qa_result(
                             "FAIL",
                             "QA gate: FAIL — FORGE workspace is empty",
+                            meta={"qa_report": qa_report},
                         )
                     )
 
                 yield await r.tick(r.idle("Idle"))
                 return
 
-            failures: list[str] = []
+            failures: list[dict[str, str]] = []
 
             for name, command in checks:
                 yield await r.tick(r.working(f"Running QA check: {name}"))
@@ -126,26 +165,56 @@ class DeterministicQAExecutor:
                         r.say(f"{name} → PASS :: {summary}")
                     )
                 else:
-                    failures.append(name)
-                    error = result["error"].strip()
+                    error = str(result["error"]).strip()
+                    output = str(result["output"]).strip()
                     summary = error[-500:] if error else "check failed"
+
+                    failures.append(
+                        {
+                            "name": name,
+                            "error": summary,
+                            "output": output[-500:] if output else "",
+                        }
+                    )
+
                     yield await r.tick(
                         r.say(f"{name} → FAIL :: {summary}")
                     )
 
             if failures:
+                qa_report = {
+                    "score": "FAIL",
+                    "failed_checks": [
+                        failure["name"]
+                        for failure in failures
+                    ],
+                    "details": failures,
+                }
+
+                ctx.shared["qa_report"] = qa_report
+
                 yield await r.tick(
                     r.qa_result(
                         "FAIL",
                         "QA gate: FAIL — failed checks: "
-                        + ", ".join(failures),
+                        + ", ".join(qa_report["failed_checks"]),
+                        meta={"qa_report": qa_report},
                     )
                 )
             else:
+                qa_report = {
+                    "score": "PASS",
+                    "failed_checks": [],
+                    "details": [],
+                }
+
+                ctx.shared["qa_report"] = qa_report
+
                 yield await r.tick(
                     r.qa_result(
                         "PASS",
                         "QA gate: PASS — all applicable deterministic checks green",
+                        meta={"qa_report": qa_report},
                     )
                 )
 
