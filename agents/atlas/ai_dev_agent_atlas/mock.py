@@ -18,10 +18,6 @@ from ai_dev_agent_core import (
 from ai_dev_shared import AgentEvent, Subtask, Task, TaskStatus
 from ai_dev_shared.constants import EventKind
 from ai_dev_tools import ToolChest, default_tools
-from ai_dev_agent_forge import MockForgeExecutor
-from ai_dev_agent_pulse import MockPulseExecutor
-from ai_dev_agent_qa import MockQAExecutor
-from ai_dev_agent_scout import MockScoutExecutor
 
 
 def build_plan(task: Task, intent: str) -> list[Subtask]:
@@ -79,15 +75,18 @@ class MockAtlasExecutor:
         yield await r.tick(r.working("Dispatching subtasks", task_status=TaskStatus.RUNNING))
         yield await r.tick(r.waiting("Agents executing subtasks"))
 
-        scout = MockScoutExecutor(task, ctx)
+        # Dispatch to SCOUT via registry (not direct import)
+        scout = ctx.dispatch("scout")
         async for ev in scout.execute(task, ctx):
             yield await r.tick(ev)
 
-        forge = MockForgeExecutor(task, ctx)
+        # Dispatch to FORGE via registry
+        forge = ctx.dispatch("forge")
         async for ev in forge.execute(task, ctx):
             yield await r.tick(ev)
 
-        qa = MockQAExecutor(task, ctx)
+        # Dispatch to QA via registry
+        qa = ctx.dispatch("qa")
         qa_score: str | None = None
         async for ev in qa.execute(task, ctx):
             if ev.kind == EventKind.QA_RESULT:
@@ -107,7 +106,8 @@ class MockAtlasExecutor:
             )
             return
 
-        pulse = MockPulseExecutor(task, ctx)
+        # Dispatch to PULSE via registry
+        pulse = ctx.dispatch("pulse")
         async for ev in pulse.execute(task, ctx):
             yield await r.tick(ev)
 
