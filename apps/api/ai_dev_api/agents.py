@@ -1,4 +1,4 @@
-"""Wires the five mock agents into the agent registry with its own factory."""
+"""Wires five mock agents into agent registry with its own factory."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any
 
 from ai_dev_agent_atlas import MockAtlasExecutor
 from ai_dev_agent_core import AgentRegistry, ExecutionContext
-from ai_dev_agent_forge import MockForgeExecutor
+from ai_dev_agent_forge import HermesExecutor, MockForgeExecutor
 from ai_dev_agent_pulse import MockPulseExecutor
 from ai_dev_agent_qa import MockQAExecutor
 from ai_dev_agent_scout import MockScoutExecutor
@@ -24,7 +24,7 @@ _MOCK_CLASSES = {
 
 @dataclass(frozen=True)
 class MockFactory:
-    """Creates a fresh mock executor per task invocation."""
+    """Creates fresh mock executor per task invocation."""
 
     agent_id: str
     executor_cls: type
@@ -33,19 +33,25 @@ class MockFactory:
         return self.executor_cls(task, ctx)
 
 
-def build_registry() -> AgentRegistry:
-    """A real LLM runtime mounts here: swap the MockFactory agent_id -> cls
-    table for registrations built on another AgentExecutor implementation.
-    """
-    registry = AgentRegistry()
-    for agent_id, cls in _MOCK_CLASSES.items():
-        registry.register(
-            MockFactory(agent_id, cls),
-            name=_name(agent_id),
-            role=AGENT_ROLES[agent_id],
-            color=AGENT_COLORS[agent_id],
-        )
-    return registry
+@dataclass(frozen=True)
+class ForgeFactory:
+    """Factory that selects MockForgeExecutor or HermesExecutor based on config."""
+
+    agent_id: str = "forge"
+
+    def __call__(self, task: Task, ctx: ExecutionContext) -> Any:
+        """Create executor based on FORGE_MODE setting."""
+        from .config import settings
+
+        mode = settings.forge_mode.lower()
+
+        if mode == "hermes":
+            executor = HermesExecutor(task, ctx)
+            executor.timeout = settings.forge_timeout
+            return executor
+        else:
+            # Default to mock
+            return MockForgeExecutor(task, ctx)
 
 
 def _name(agent_id: str) -> str:
@@ -55,10 +61,32 @@ def _name(agent_id: str) -> str:
         "forge": "FORGE",
         "qa": "QA",
         "pulse": "PULSE",
-    }[agent_id]
+    }.get(agent_id, agent_id.upper())
 
 
-def infer_intent(task: Task) -> str:
-    from ai_dev_agent_core import classify_intent
+def build_registry() -> AgentRegistry:
+    """A real LLM runtime mounts here: swap MockFactory agent_id -> cls
+    table registrations built on another AgentExecutor implementation."""
+    registry = AgentRegistry()
 
-    return classify_intent(task)
+    # Register ATLAS, SCOUT, QA, PULSE with mock factories
+    for agent_id, cls in _MOCK_CLASSES.items():
+        if agent_id == "forge":
+            continue  # FORGE handled separately
+
+        registry.register(
+            MockFactory(agent_id, cls),
+            name=_name(agent_id),
+            role=AGENT_ROLES[agent_id],
+            color=AGENT_COLORS[agent_id],
+        )
+
+    # Register FORGE with smart factory (mock or hermes based on FORGE_MODE)
+    registry.register(
+        ForgeFactory(),
+        name=_name("forge"),
+        role=AGENT_ROLES["forge"],
+        color=AGENT_COLORS["forge"],
+    )
+
+    return registry

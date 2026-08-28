@@ -32,5 +32,10 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
+    # FORGE execution mode: "mock" or "hermes"
+    forge_mode: str = "mock"
+    forge_timeout: int = 600  # seconds
+    forge_workspace_root: Path = _REPO_ROOT / "workspaces"
+
 
 settings = Settings()
