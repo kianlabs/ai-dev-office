@@ -40,13 +40,14 @@ export default function OfficeCanvas({ agents }: OfficeCanvasProps) {
 
       <Canvas
         shadows
+        flat
         dpr={[1, 1.5]}
         gl={{ antialias: true, alpha: true }}
         camera={{ position: [0, 22, 20], zoom: 26, near: 0.1, far: 120 }}
       >
         <Suspense fallback={null}>
           <OfficeEnvironment />
-          <OfficeScene agents={agents} camRef={refs.camRef} controlsRef={refs.controlsRef} />
+          <OfficeScene agents={agents} refs={refs} />
         </Suspense>
       </Canvas>
     </div>

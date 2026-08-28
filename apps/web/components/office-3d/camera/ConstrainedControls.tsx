@@ -18,12 +18,12 @@ export default function ConstrainedControls({ controlsRef }: ConstrainedControls
       enableRotate
       enableDamping
       dampingFactor={0.08}
-      minZoom={12}
-      maxZoom={46}
-      minDistance={6}
-      maxDistance={60}
-      minPolarAngle={0.2}
-      maxPolarAngle={1.35}
+      minZoom={5}
+      maxZoom={80}
+      minDistance={8}
+      maxDistance={70}
+      minPolarAngle={0.22}
+      maxPolarAngle={1.3}
       target={[0, 0, 0]}
     />
   );

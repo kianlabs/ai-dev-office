@@ -1,29 +1,30 @@
 "use client";
 
-import type { OrthographicCamera as CamType } from "three";
-import type { OrbitControls as OrbitImpl } from "three-stdlib";
 import type { AgentRecord } from "@/lib/types";
 
 import IsometricCamera from "./camera/IsometricCamera";
 import ConstrainedControls from "./camera/ConstrainedControls";
+import OfficeFrame from "./camera/OfficeFrame";
 import OfficeLighting from "./lighting/OfficeLighting";
 import MainOffice from "./rooms/MainOffice";
+import type { OfficeCameraRefs } from "./useOfficeCamera";
 
 interface OfficeSceneProps {
   agents: AgentRecord[];
-  camRef: React.RefObject<CamType | null>;
-  controlsRef: React.RefObject<OrbitImpl | null>;
+  refs: OfficeCameraRefs;
 }
 
 // The static 3D scene: camera, constrained orbit controls, lighting and the
-// main office assembled from rooms/furniture/stations.
-export default function OfficeScene({ agents, camRef, controlsRef }: OfficeSceneProps) {
+// main office assembled from rooms/furniture/stations. OfficeFrame fits the
+// whole office into the viewport on the first frame.
+export default function OfficeScene({ agents, refs }: OfficeSceneProps) {
   return (
     <>
-      <IsometricCamera camRef={camRef} />
-      <ConstrainedControls controlsRef={controlsRef} />
+      <IsometricCamera camRef={refs.camRef} />
+      <ConstrainedControls controlsRef={refs.controlsRef} />
       <OfficeLighting />
       <MainOffice agents={agents} />
+      <OfficeFrame refs={refs} />
     </>
   );
 }

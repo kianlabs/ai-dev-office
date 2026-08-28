@@ -29,32 +29,32 @@ export default function MainOffice({ agents }: MainOfficeProps) {
       {/* office floor */}
       <mesh position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[26, 18]} />
-        <meshStandardMaterial color="#2a2520" roughness={0.85} metalness={0.05} />
+        <meshStandardMaterial color="#3b352e" roughness={0.9} metalness={0.05} />
       </mesh>
 
       {/* partial walls at the back / sides */}
       <mesh position={[-12.5, 1.5, -8.5]} castShadow>
         <boxGeometry args={[0.3, 3, 17]} />
-        <meshStandardMaterial color="#232b2f" roughness={0.6} />
+        <meshStandardMaterial color="#2d363e" roughness={0.65} />
       </mesh>
       <mesh position={[12.5, 1.5, -8.5]} castShadow>
         <boxGeometry args={[0.3, 3, 17]} />
-        <meshStandardMaterial color="#232b2f" roughness={0.6} />
+        <meshStandardMaterial color="#2d363e" roughness={0.65} />
       </mesh>
       <mesh position={[0, 1.5, -9.8]} castShadow>
         <boxGeometry args={[25, 3, 0.3]} />
-        <meshStandardMaterial color="#232b2f" roughness={0.6} />
+        <meshStandardMaterial color="#2d363e" roughness={0.65} />
       </mesh>
 
       {/* back wall window strip with soft glass glow */}
       <mesh position={[0, 2.4, -9.55]}>
         <boxGeometry args={[20, 1.1, 0.08]} />
         <meshStandardMaterial
-          color="#1e293b"
+          color="#24407a"
           emissive="#1e3a8a"
-          emissiveIntensity={0.35}
+          emissiveIntensity={0.7}
           transparent
-          opacity={0.85}
+          opacity={0.9}
         />
       </mesh>
 
@@ -67,11 +67,11 @@ export default function MainOffice({ agents }: MainOfficeProps) {
       {/* front facade divider walls (left/right halves) */}
       <mesh position={[-5.8, 1.5, 8.6]} castShadow>
         <boxGeometry args={[0.25, 3, 0.25]} />
-        <meshStandardMaterial color="#232b2f" roughness={0.6} />
+        <meshStandardMaterial color="#2d363e" roughness={0.65} />
       </mesh>
       <mesh position={[5.8, 1.5, 8.6]} castShadow>
         <boxGeometry args={[0.25, 3, 0.25]} />
-        <meshStandardMaterial color="#232b2f" roughness={0.6} />
+        <meshStandardMaterial color="#2d363e" roughness={0.65} />
       </mesh>
 
       {/* 5 live agent workstations */}

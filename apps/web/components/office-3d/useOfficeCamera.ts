@@ -4,30 +4,49 @@ import { useRef } from "react";
 import type { OrthographicCamera as CamType } from "three";
 import type { OrbitControls as OrbitImpl } from "three-stdlib";
 
-import { ISOMETRIC_POSITION, ISOMETRIC_ZOOM } from "./camera/IsometricCamera";
+export interface FittedView {
+  position: [number, number, number];
+  target: [number, number, number];
+  zoom: number;
+}
 
 export interface OfficeCameraRefs {
   camRef: React.RefObject<CamType | null>;
   controlsRef: React.RefObject<OrbitImpl | null>;
+  fittedRef: React.RefObject<FittedView | null>;
 }
 
 export function useOfficeCamera(): OfficeCameraRefs {
   const camRef = useRef<CamType | null>(null);
   const controlsRef = useRef<OrbitImpl | null>(null);
-  return { camRef, controlsRef };
+  const fittedRef = useRef<FittedView | null>(null);
+  return { camRef, controlsRef, fittedRef };
 }
 
-// Reset the orthographic camera + controls to the default isometric view.
-export function resetOfficeCamera({ camRef, controlsRef }: OfficeCameraRefs) {
+// Restore the default isometric overview. Prefers the first-frame fitted view
+// (computed from the actual scene bounds), falling back to the constants.
+export function resetOfficeCamera({ camRef, controlsRef, fittedRef }: OfficeCameraRefs) {
   const cam = camRef.current;
+  const controls = controlsRef.current;
+  const fitted = fittedRef.current;
+
+  let position: [number, number, number] = [0, 22, 20];
+  let target: [number, number, number] = [0, 0, 0];
+  let zoom = 26;
+
+  if (fitted) {
+    position = fitted.position;
+    target = fitted.target;
+    zoom = fitted.zoom;
+  }
+
   if (cam) {
-    cam.position.set(...ISOMETRIC_POSITION);
-    cam.zoom = ISOMETRIC_ZOOM;
+    cam.position.set(...position);
+    cam.zoom = zoom;
     cam.updateProjectionMatrix();
   }
-  const controls = controlsRef.current;
   if (controls) {
-    controls.target.set(0, 0, 0);
+    controls.target.set(...target);
     controls.update();
   }
 }
