@@ -43,6 +43,42 @@ class MockScoutExecutor:
         yield await r.tick(r.say("Option A: library-native · Option B: minimal custom layer"))
         yield await r.tick(r.say("Recommendation: Option A — lower maintenance surface"))
 
-        yield await r.tick(r.waiting("Preparing research brief for ATLAS"))
-        yield await r.tick(r.say("Research brief delivered to ATLAS — approach locked."))
+        yield await r.tick(
+            r.waiting("Preparing structured research brief for ATLAS")
+        )
+
+        research = {
+            "summary": (
+                docs.output
+                if docs.ok
+                else f"Research completed for topic: {topic}"
+            ),
+            "recommendations": [
+                "Prefer the library-native implementation path",
+                "Keep the implementation minimal and maintainable",
+            ],
+            "constraints": [
+                "Preserve the existing project structure",
+                "Avoid unnecessary dependencies",
+                "Keep changes scoped to the requested task",
+            ],
+            "references": [
+                f"mock-docs:{topic}",
+                f"project:{repo_name_for(task)}",
+            ],
+        }
+
+        # Structured SCOUT -> ATLAS/FORGE communication channel.
+        ctx.shared["research"] = research
+
+        yield await r.tick(
+            r.say(
+                "Research brief delivered to ATLAS",
+                meta={
+                    "research": research,
+                    "structured": True,
+                },
+            )
+        )
+
         yield await r.tick(r.idle("Idle"))

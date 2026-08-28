@@ -31,6 +31,10 @@ def build_plan(task: Task, intent: str) -> list[Subtask]:
     }
 
     return [
+        Subtask(
+            title="Research implementation constraints and recommended approach",
+            agent_id="scout",
+        ),
         Subtask(title=labels[intent], agent_id="forge"),
         Subtask(
             title="Verify implementation and run deterministic QA gate",
@@ -68,7 +72,21 @@ class MockAtlasExecutor:
         yield await r.tick(r.working("Dispatching subtasks", task_status=TaskStatus.RUNNING))
         yield await r.tick(r.waiting("Agents executing subtasks"))
 
-        # Dispatch to FORGE via registry using its child context.
+        # SCOUT performs read-only research first and stores its structured
+        # brief in the shared per-task execution context.
+        async for ev in ctx.dispatch_stream("scout"):
+            yield await r.tick(ev)
+
+        research = ctx.shared.get("research")
+        if research:
+            yield await r.tick(
+                r.say(
+                    "SCOUT research accepted and attached to FORGE context",
+                    meta={"research": research},
+                )
+            )
+
+        # Dispatch to FORGE. Its child context receives the same shared state.
         async for ev in ctx.dispatch_stream("forge"):
             yield await r.tick(ev)
 

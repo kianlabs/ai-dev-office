@@ -31,6 +31,11 @@ class ExecutionContext:
     settings: dict[str, Any] = field(default_factory=dict)
     registry: AgentRegistry | None = None
     seed: int = 0
+
+    # Shared per-task orchestration state.
+    # Child contexts receive the SAME dictionary so workers can return
+    # structured data to ATLAS and later workers can consume it.
+    shared: dict[str, Any] = field(default_factory=dict)
     _dispatch_path: list[str] = field(default_factory=list, repr=False)
     _caller_agent: str | None = field(default=None, repr=False)
 
@@ -87,6 +92,7 @@ class ExecutionContext:
             settings=self.settings,
             registry=self.registry,
             seed=self.seed,
+            shared=self.shared,
             _dispatch_path=self._dispatch_path + [agent_id],
             _caller_agent=agent_id,
         )
