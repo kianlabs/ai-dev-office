@@ -80,7 +80,6 @@ export default function AgentStation({
         <Html
           position={[0, 1.95, 0]}
           center
-          distanceFactor={9}
           style={{
             pointerEvents: "none",
             userSelect: "none",
