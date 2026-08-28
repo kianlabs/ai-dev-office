@@ -10,6 +10,8 @@ LLM-backed ATLAS planner while preserving the same plan contract.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from difflib import SequenceMatcher
+import re
 
 from ai_dev_shared import Subtask, Task
 
@@ -30,6 +32,26 @@ def _task_text(task: Task) -> str:
 
 def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
     return any(term in text for term in terms)
+
+
+def _contains_fuzzy_word(
+    text: str,
+    terms: tuple[str, ...],
+    threshold: float = 0.90,
+) -> bool:
+    """Match minor typos only for long, explicit intent words."""
+
+    words = re.findall(r"[a-zA-Z]+", text.lower())
+
+    for word in words:
+        for term in terms:
+            if abs(len(word) - len(term)) > 2:
+                continue
+
+            if SequenceMatcher(None, word, term).ratio() >= threshold:
+                return True
+
+    return False
 
 
 def build_role_aware_plan(task: Task, intent: str) -> AtlasPlan:
@@ -53,10 +75,16 @@ def build_role_aware_plan(task: Task, intent: str) -> AtlasPlan:
             "explain codebase",
             "review architecture",
             "analisis",
+            "analisa",
+            "telaah",
             "teliti",
             "riset",
+            "jelaskan",
             "jelaskan codebase",
             "jelaskan arsitektur",
+            "pahami codebase",
+            "pahami arsitektur",
+            "periksa struktur",
         ),
     )
 
@@ -70,8 +98,14 @@ def build_role_aware_plan(task: Task, intent: str) -> AtlasPlan:
             "verify tests",
             "jalankan test",
             "jalankan tes",
+            "jalankan pengujian",
+            "uji project",
+            "uji proyek",
+            "tes project",
+            "tes proyek",
             "cek test",
             "cek tes",
+            "periksa pengujian",
         ),
     )
 
@@ -87,8 +121,13 @@ def build_role_aware_plan(task: Task, intent: str) -> AtlasPlan:
             "deployment health",
             "cek health",
             "cek kesehatan",
+            "periksa kesehatan",
+            "kesehatan sistem",
+            "kesehatan runtime",
             "cek runtime",
+            "periksa runtime",
             "monitor runtime",
+            "pantau runtime",
         ),
     )
 
@@ -107,47 +146,65 @@ def build_role_aware_plan(task: Task, intent: str) -> AtlasPlan:
             "tanpa merubah",
             "tanpa memodifikasi",
             "jangan ubah",
+            "jangan mengubah",
             "jangan merubah",
             "jangan modifikasi",
+            "jangan memodifikasi",
+            "tidak boleh mengubah",
+            "tidak boleh merubah",
+            "tidak boleh memodifikasi",
+            "jangan edit",
+            "tanpa edit",
+            "read only",
+            "read-only",
             "hanya analisis",
             "hanya analisa",
         ),
     )
 
-    implementation_requested = _contains_any(
-        text,
-        (
-            "implement",
-            "create",
-            "add ",
-            "fix",
-            "change",
-            "modify",
-            "refactor",
-            "build",
-            "buat",
-            "tambahkan",
-            "perbaiki",
-            "ubah",
-            "implementasikan",
-        ),
+    implementation_requested = (
+        _contains_any(
+            text,
+            (
+                "implement",
+                "create",
+                "add ",
+                "fix",
+                "change",
+                "modify",
+                "refactor",
+                "build",
+                "buat",
+                "tambahkan",
+                "perbaiki",
+                "ubah",
+                "implementasikan",
+            ),
+        )
+        or _contains_fuzzy_word(
+            text,
+            (
+                "implement",
+                "implementasi",
+                "implementasikan",
+            ),
+        )
     )
 
-    # Explicit read-only/no-modification language overrides generic intent.
-    # classify_intent() may label a task as "feature" from broad task wording,
-    # but ATLAS must not dispatch FORGE when the user explicitly forbids edits.
-    # Explicit read-only and operational-only requests override the broad
-    # intent classifier. A task such as "check runtime health" must not become
-    # an implementation task merely because classify_intent() returned
-    # "feature".
-    explicit_non_implementation = (
-        no_modification
-        or test_only
-        or health_only
+    # Explicit read-only language is a hard safety constraint.
+    # Testing/health keywords alone are not enough to suppress implementation:
+    # "implement X and run tests" still requires FORGE + QA.
+    #
+    # Broad classifier intent is only trusted when the task does not explicitly
+    # describe itself as an operational-only request.
+    operational_only = (
+        (test_only or health_only)
+        and not implementation_requested
     )
 
     implementation = (
-        not explicit_non_implementation
+        not no_modification
+        and not operational_only
         and (
             implementation_requested
             or intent in {"feature", "bug", "auth", "deploy"}
@@ -187,6 +244,8 @@ def build_role_aware_plan(task: Task, intent: str) -> AtlasPlan:
         ),
     )
 
+    monitoring_needed = deployment_related or health_only
+
     # Explicit single-role operational requests take precedence.
     if health_only and not implementation:
         agents = ("pulse",)
@@ -222,10 +281,10 @@ def build_role_aware_plan(task: Task, intent: str) -> AtlasPlan:
         selected.append("qa")
         reasons["qa"] = "implementation must be verified"
 
-        if deployment_related:
+        if monitoring_needed:
             selected.append("pulse")
             reasons["pulse"] = (
-                "deployment-related work requires readiness monitoring"
+                "runtime/deployment verification is required"
             )
 
         agents = tuple(selected)
