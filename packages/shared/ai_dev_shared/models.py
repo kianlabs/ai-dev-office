@@ -1,0 +1,80 @@
+"""Pydantic models for the domain: tasks, events, agent records."""
+
+from __future__ import annotations
+
+import time
+import uuid
+from typing import Any
+
+from pydantic import BaseModel, Field
+
+from .constants import AgentStatus, EventKind, TaskStatus
+
+
+class Subtask(BaseModel):
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex[:8])
+    title: str
+    agent_id: str
+    status: TaskStatus = TaskStatus.QUEUED
+
+
+class Task(BaseModel):
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex)
+    title: str
+    description: str = ""
+    status: TaskStatus = TaskStatus.QUEUED
+    subtasks: list[Subtask] = Field(default_factory=list)
+    summary: str | None = None
+    error: str | None = None
+    created_at: float = Field(default_factory=time.time)
+    updated_at: float = Field(default_factory=time.time)
+
+
+class AgentEvent(BaseModel):
+    """The universal stream primitive.
+
+    Every AgentExecutor yields a stream of these. The orchestration engine
+    persists, broadcasts, and reflects them onto agent/task state.
+    """
+
+    agent_id: str
+    kind: EventKind
+    message: str = ""
+    agent_status: AgentStatus | None = None
+    task_status: TaskStatus | None = None
+    subtasks: list[Subtask] = Field(default_factory=list)
+    score: str | None = None
+    meta: dict[str, Any] = Field(default_factory=dict)
+    at: float = Field(default_factory=time.time)
+
+
+class AgentRecord(BaseModel):
+    agent_id: str
+    name: str
+    role: str
+    color: str
+    status: AgentStatus = AgentStatus.IDLE
+    activity: str = "Idle"
+    last_event_at: float = Field(default_factory=time.time)
+
+
+class ActivityItem(BaseModel):
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex)
+    at: float = Field(default_factory=time.time)
+    agent_id: str
+    agent_name: str
+    task_id: str | None = None
+    message: str
+    kind: EventKind = EventKind.LOG
+
+
+__all__ = [
+    "TaskStatus",
+    "AgentStatus",
+    "EventKind",
+    "Subtask",
+    "Task",
+    "AgentEvent",
+    "AgentRecord",
+    "ActivityItem",
+]

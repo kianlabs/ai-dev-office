@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-dev-agent-scout"
+version = "0.1.0"
+description = "SCOUT - Research Agent"
+requires-python = ">=3.11"
+dependencies = ["ai-dev-agent-core", "ai-dev-tools"]
+
+[tool.setuptools]
+packages = ["ai_dev_agent_scout"]

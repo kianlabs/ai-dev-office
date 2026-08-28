@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai-dev-api"
+version = "0.1.0"
+description = "FastAPI backend for AI Dev Office"
+requires-python = ">=3.11"
+dependencies = [
+    "ai-dev-shared",
+    "ai-dev-agent-core",
+    "ai-dev-tools",
+    "ai-dev-agent-atlas",
+    "ai-dev-agent-scout",
+    "ai-dev-agent-forge",
+    "ai-dev-agent-qa",
+    "ai-dev-agent-pulse",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy>=2.0",
+    "aiosqlite>=0.20",
+    "pydantic-settings>=2.0",
+]
+
+[tool.setuptools]
+packages = ["ai_dev_api"]
