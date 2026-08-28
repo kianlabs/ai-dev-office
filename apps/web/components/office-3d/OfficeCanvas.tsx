@@ -2,7 +2,7 @@
 
 import { Suspense } from "react";
 import { Canvas } from "@react-three/fiber";
-import type { AgentRecord } from "@/lib/types";
+import type { ActivityItem, AgentRecord } from "@/lib/types";
 
 import OfficeEnvironment from "./OfficeEnvironment";
 import OfficeScene from "./OfficeScene";
@@ -10,11 +10,15 @@ import { resetOfficeCamera, useOfficeCamera } from "./useOfficeCamera";
 
 interface OfficeCanvasProps {
   agents: AgentRecord[];
+  activity: ActivityItem[];
 }
 
 // The WebGL canvas that hosts the low-poly office, plus a minimal overlay
 // (title + Reset View). Camera refs live here and drive the Reset View button.
-export default function OfficeCanvas({ agents }: OfficeCanvasProps) {
+export default function OfficeCanvas({
+  agents,
+  activity,
+}: OfficeCanvasProps) {
   const refs = useOfficeCamera();
 
   return (
@@ -47,7 +51,7 @@ export default function OfficeCanvas({ agents }: OfficeCanvasProps) {
       >
         <Suspense fallback={null}>
           <OfficeEnvironment />
-          <OfficeScene agents={agents} refs={refs} />
+          <OfficeScene agents={agents} activity={activity} refs={refs} />
         </Suspense>
       </Canvas>
     </div>

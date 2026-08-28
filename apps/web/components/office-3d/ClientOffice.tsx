@@ -1,13 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { AgentRecord } from "@/lib/types";
+import type { ActivityItem, AgentRecord } from "@/lib/types";
 
 import OfficeCanvas from "./OfficeCanvas";
 
 // Mounts the WebGL office only in the browser. SSR renders a clean placeholder
 // so there is no `window is not defined` / hydration mismatch from three.js.
-export default function ClientOffice({ agents }: { agents: AgentRecord[] }) {
+interface ClientOfficeProps {
+  agents: AgentRecord[];
+  activity: ActivityItem[];
+}
+
+export default function ClientOffice({
+  agents,
+  activity,
+}: ClientOfficeProps) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -22,5 +30,5 @@ export default function ClientOffice({ agents }: { agents: AgentRecord[] }) {
     );
   }
 
-  return <OfficeCanvas agents={agents} />;
+  return <OfficeCanvas agents={agents} activity={activity} />;
 }

@@ -69,7 +69,7 @@ export default function Home() {
       {/* main row: 3D office (primary) + activity feed */}
       <main className="flex min-h-0 flex-1 overflow-hidden">
         <div className="relative min-w-0 flex-1 p-3">
-          <ClientOffice agents={room.agents} />
+          <ClientOffice agents={room.agents} activity={room.activity} />
         </div>
 
         <aside className="hidden w-[360px] shrink-0 border-l border-line p-3 lg:block">

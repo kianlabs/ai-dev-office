@@ -1,15 +1,20 @@
 "use client";
 
-import type { AgentRecord } from "@/lib/types";
+import type { ActivityItem, AgentRecord } from "@/lib/types";
 
 import Plant from "../furniture/Plant";
-import { deriveAgentVisualState } from "../semantic";
+import {
+  applyTransientVisualState,
+  deriveAgentVisualState,
+  useTransientAgentVisuals,
+} from "../semantic";
 import AgentStation from "../stations/AgentStation";
 import MeetingRoom from "./MeetingRoom";
 import ServerRoom from "./ServerRoom";
 
 interface MainOfficeProps {
   agents: AgentRecord[];
+  activity: ActivityItem[];
 }
 
 // Workstation layout across the open plan. Each faces an inner atrium.
@@ -21,8 +26,12 @@ const STATION_PLACEMENT: { agentId: string; name: string; pos: [number, number, 
   { agentId: "pulse", name: "PULSE", pos: [7.0, 0, -3.4], facing: "west" },
 ];
 
-export default function MainOffice({ agents }: MainOfficeProps) {
+export default function MainOffice({
+  agents,
+  activity,
+}: MainOfficeProps) {
   const byId = new Map(agents.map((a) => [a.agent_id, a]));
+  const transientVisuals = useTransientAgentVisuals(activity);
 
   // Open-plan floor: dark wooden tones.
   return (
@@ -79,7 +88,7 @@ export default function MainOffice({ agents }: MainOfficeProps) {
       {STATION_PLACEMENT.map((s) => {
         const agent = byId.get(s.agentId);
 
-        const visualState = agent
+        const baseVisualState = agent
           ? deriveAgentVisualState(agent)
           : {
               mode: "idle" as const,
@@ -87,6 +96,11 @@ export default function MainOffice({ agents }: MainOfficeProps) {
               active: false,
               attention: false,
             };
+
+        const visualState = applyTransientVisualState(
+          baseVisualState,
+          transientVisuals[s.agentId],
+        );
 
         return (
           <AgentStation
