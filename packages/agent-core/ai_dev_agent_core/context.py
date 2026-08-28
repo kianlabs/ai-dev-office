@@ -12,6 +12,17 @@ if TYPE_CHECKING:
     from .registry import AgentRegistry
 
 
+# Dispatch guard constants
+ORCHESTRATOR_AGENT = "atlas"
+WORKER_AGENTS = {"scout", "forge", "qa", "pulse"}
+MAX_DISPATCH_HOPS = 8
+
+
+class DispatchForbiddenError(RuntimeError):
+    """Raised when dispatch violates orchestration rules."""
+    pass
+
+
 @dataclass
 class ExecutionContext:
     """Everything a runtime needs to work on one task."""
@@ -20,6 +31,8 @@ class ExecutionContext:
     settings: dict[str, Any] = field(default_factory=dict)
     registry: AgentRegistry | None = None
     seed: int = 0
+    _dispatch_path: list[str] = field(default_factory=list, repr=False)
+    _caller_agent: str | None = field(default=None, repr=False)
 
     @property
     def rng(self) -> random.Random:
@@ -40,7 +53,42 @@ class ExecutionContext:
 
         This is the ONLY way ATLAS should delegate to other agents.
         The registry selects the appropriate executor (mock or real).
+
+        Raises:
+            DispatchForbiddenError: If dispatch violates orchestration rules.
         """
         if self.registry is None:
             raise RuntimeError("Cannot dispatch: no registry in context")
-        return self.registry.executor_for(agent_id, self.task, self)
+
+        # Rule 1: Only ATLAS (orchestrator) can dispatch
+        if self._caller_agent and self._caller_agent != ORCHESTRATOR_AGENT:
+            raise DispatchForbiddenError(
+                f"worker_dispatch_forbidden: {self._caller_agent} cannot dispatch {agent_id} "
+                f"(only {ORCHESTRATOR_AGENT} can dispatch)"
+            )
+
+        # Rule 2: Block recursive dispatch (agent dispatching itself)
+        if agent_id in self._dispatch_path:
+            path_str = " → ".join(self._dispatch_path + [agent_id])
+            raise DispatchForbiddenError(
+                f"recursive_dispatch: {agent_id} already in dispatch path [{path_str}]"
+            )
+
+        # Rule 3: Max dispatch hops
+        if len(self._dispatch_path) >= MAX_DISPATCH_HOPS:
+            path_str = " → ".join(self._dispatch_path)
+            raise DispatchForbiddenError(
+                f"max_dispatch_hops: exceeded {MAX_DISPATCH_HOPS} hops in path [{path_str}]"
+            )
+
+        # Create child context with updated dispatch path
+        child_ctx = ExecutionContext(
+            task=self.task,
+            settings=self.settings,
+            registry=self.registry,
+            seed=self.seed,
+            _dispatch_path=self._dispatch_path + [agent_id],
+            _caller_agent=agent_id,
+        )
+
+        return self.registry.executor_for(agent_id, self.task, child_ctx)
