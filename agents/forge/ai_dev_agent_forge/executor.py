@@ -1,20 +1,29 @@
 """Real HermesExecutor for FORGE - Coding Agent.
 
-This is a MINIMAL smoke integration that runs Hermes as a subprocess.
-NOT production-ready - no sandbox, limited output parsing.
+This is a MINIMAL smoke integration that runs Hermes as a subprocess with bubblewrap isolation.
+Filesystem isolation via bwrap, NOT network isolation.
 
-Security limitations:
-- Prompt rules are NOT a real sandbox
-- Hermes has full filesystem access
-- No credential isolation
-- No network filtering
+Security status:
+- Filesystem isolation: ACTIVE (bwrap)
+- Network isolation: NONE (--share-net for API)
+- Prompt restrictions: NOT security boundaries
+
+Isolation properties:
+- Workspace: writable (/workspace)
+- ~/.ssh: NOT accessible
+- ~/.gnupg: NOT accessible
+- ~/.config: NOT accessible
+- ~/ai-dev-office: NOT accessible
+- Other home files: NOT accessible
+- System paths: read-only
+- Hermes config: required config exposed read-only
+- Provider credential: only the required provider key is passed via environment
 """
 
 from __future__ import annotations
 
 import asyncio
 import shutil
-import tempfile
 import time
 from pathlib import Path
 from typing import AsyncIterator
@@ -26,6 +35,46 @@ from ai_dev_shared.constants import AgentStatus, EventKind, TaskStatus
 # Global semaphore to enforce FORGE concurrency = 1
 # Prevents multiple Hermes executions running simultaneously
 _FORGE_SEMAPHORE = asyncio.Semaphore(1)
+
+# Isolation configuration
+BWRAP_PATH = "/usr/bin/bwrap"
+
+HOST_HERMES_ROOT = Path.home() / ".hermes"
+HOST_HERMES_AGENT = HOST_HERMES_ROOT / "hermes-agent"
+HOST_HERMES_CONFIG = HOST_HERMES_ROOT / "config.yaml"
+
+SANDBOX_HOME = "/home/forge"
+SANDBOX_HERMES_HOME = f"{SANDBOX_HOME}/.hermes"
+
+# Keep Hermes runtime at its original absolute location because the venv
+# entrypoint/interpreter uses absolute paths and is not relocatable.
+SANDBOX_HERMES_AGENT = "/home/k14n/.hermes/hermes-agent"
+SANDBOX_HERMES_EXE = f"{SANDBOX_HERMES_AGENT}/venv/bin/hermes"
+
+
+def _load_archkian_api_key() -> str:
+    """Load only the credential required by the configured custom provider."""
+    env_file = HOST_HERMES_ROOT / ".env"
+    key_name = "HERMES_CUSTOM_LOCALHOST_20128_API_KEY"
+
+    if not env_file.is_file():
+        raise RuntimeError(f"Required Hermes env file not found: {env_file}")
+
+    for raw_line in env_file.read_text().splitlines():
+        line = raw_line.strip()
+
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        name, value = line.split("=", 1)
+
+        if name.strip() == key_name:
+            value = value.strip().strip("\"'")
+            if not value:
+                break
+            return value
+
+    raise RuntimeError(f"{key_name} is not configured")
 
 
 class HermesExecutor:
@@ -136,8 +185,8 @@ class HermesExecutor:
     def _build_prompt(self, task: Task) -> str:
         """Build Hermes prompt with workspace constraints.
 
-        WARNING: These rules are NOT enforced - they're just instructions.
-        Hermes has full filesystem access.
+        These prompt rules are defense-in-depth instructions only.
+        Filesystem restrictions are enforced separately by bubblewrap.
         """
         return f"""You are FORGE, a coding agent working on a single task.
 
@@ -160,7 +209,7 @@ Complete this task inside your workspace, then provide a brief summary of what w
     async def _run_hermes(
         self, prompt: str, runtime
     ) -> dict:
-        """Run Hermes CLI as subprocess.
+        """Run Hermes CLI as subprocess with bwrap filesystem isolation.
 
         Returns:
             {"success": bool, "output": str, "error": str}
@@ -168,26 +217,118 @@ Complete this task inside your workspace, then provide a brief summary of what w
         if self._workspace is None:
             return {"success": False, "error": "No workspace created"}
 
-        # Check Hermes is available
+        # Check bwrap is available
+        if not Path(BWRAP_PATH).exists():
+            return {"success": False, "error": f"bwrap not found at {BWRAP_PATH}"}
+
+        # Verify the host Hermes installation and minimal configuration.
         hermes_path = shutil.which("hermes")
         if not hermes_path:
             return {"success": False, "error": "Hermes CLI not found in PATH"}
 
+        # Hermes venv uses an absolute interpreter path. Resolve its real
+        # Python runtime so the same path can be exposed read-only in bwrap.
+        host_hermes_python = (
+            HOST_HERMES_AGENT / "venv" / "bin" / "python3"
+        ).resolve()
+
+        # UV keeps version aliases (for example cpython-3.11-...) beside the
+        # resolved version directory. Mount the Python store so absolute
+        # symlinks inside the Hermes venv continue to resolve in the sandbox.
+        host_uv_python_store = Path.home() / ".local" / "share" / "uv" / "python"
+
+        required_paths = (
+            HOST_HERMES_AGENT,
+            HOST_HERMES_CONFIG,
+            host_hermes_python,
+            host_uv_python_store,
+        )
+        missing = [str(path) for path in required_paths if not path.exists()]
+        if missing:
+            return {
+                "success": False,
+                "error": f"Required Hermes path missing: {', '.join(missing)}",
+            }
+
+        # Synthetic writable HOME. Hermes may create state.db, logs, sessions,
+        # and other runtime state here without modifying the host ~/.hermes.
+        sandbox_home = self._workspace / ".ado-hermes-home"
+        sandbox_hermes_home = sandbox_home / ".hermes"
+        sandbox_hermes_home.mkdir(parents=True, exist_ok=True)
+
         try:
-            # Run Hermes with -q (non-interactive), --quiet (minimal output)
-            # Specify model and provider for smoke test
-            proc = await asyncio.create_subprocess_exec(
-                hermes_path,
+            archkian_api_key = _load_archkian_api_key()
+
+            # Build bwrap command for filesystem isolation
+            # Key principle: workspace writable, system/hermes read-only, home blocked
+            bwrap_cmd = [
+                BWRAP_PATH,
+                "--unshare-all",
+                "--share-net",  # Provider API requires network access.
+
+                # Task workspace is the only project data exposed read/write.
+                "--bind", str(self._workspace), "/workspace",
+
+                # Minimal synthetic writable HOME for Hermes runtime state.
+                "--dir", "/home",
+                "--bind", str(sandbox_home), SANDBOX_HOME,
+
+                # Empty parent directories for the original absolute
+                # Hermes/venv paths. No other host HOME content is mounted.
+                "--dir", "/home/k14n",
+                "--dir", "/home/k14n/.hermes",
+
+                # Hermes application/runtime is visible but immutable at its
+                # original absolute path because its venv is not relocatable.
+                "--ro-bind",
+                str(HOST_HERMES_AGENT),
+                SANDBOX_HERMES_AGENT,
+
+                # The venv's Python may resolve into ~/.local/share/uv.
+                # Expose only that resolved Python runtime, read-only.
+                "--dir", "/home/k14n/.local",
+                "--dir", "/home/k14n/.local/share",
+                "--dir", "/home/k14n/.local/share/uv",
+                "--ro-bind",
+                str(host_uv_python_store),
+                "/home/k14n/.local/share/uv/python",
+
+                # Expose only provider configuration required by this setup.
+                "--ro-bind",
+                str(HOST_HERMES_CONFIG),
+                f"{SANDBOX_HERMES_HOME}/config.yaml",
+
+                # System runtime.
+                "--ro-bind", "/usr", "/usr",
+                "--ro-bind", "/lib", "/lib",
+                "--ro-bind", "/lib64", "/lib64",
+                "--ro-bind", "/bin", "/bin",
+                "--ro-bind", "/etc", "/etc",
+                "--proc", "/proc",
+                "--dev", "/dev",
+                "--tmpfs", "/tmp",
+
+                # Prevent Hermes from resolving the real user's HOME.
+                "--setenv", "HOME", SANDBOX_HOME,
+                "--setenv", "USER", "forge",
+                "--setenv", "LOGNAME", "forge",
+                "--setenv",
+                "HERMES_CUSTOM_LOCALHOST_20128_API_KEY",
+                archkian_api_key,
+
+                "--chdir", "/workspace",
+
+                SANDBOX_HERMES_EXE,
                 "chat",
                 "-q",
                 prompt,
                 "--quiet",
-                "--in",
-                str(self._workspace),
-                "-m",
-                "kr/glm-5",
-                "--provider",
-                "custom:archkian",
+                "-m", "kr/glm-5",
+                "--provider", "custom:archkian",
+            ]
+
+            proc = await asyncio.create_subprocess_exec(
+                *bwrap_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
