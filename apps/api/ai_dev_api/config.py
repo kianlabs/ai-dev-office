@@ -37,5 +37,9 @@ class Settings(BaseSettings):
     forge_timeout: int = 600  # seconds
     forge_workspace_root: Path = _REPO_ROOT / "workspaces"
 
+    # QA execution mode: "mock" or "deterministic"
+    qa_mode: str = "mock"
+    qa_timeout: int = 180
+
 
 settings = Settings()

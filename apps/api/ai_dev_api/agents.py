@@ -9,7 +9,7 @@ from ai_dev_agent_atlas import MockAtlasExecutor
 from ai_dev_agent_core import AgentRegistry, ExecutionContext
 from ai_dev_agent_forge import HermesExecutor, MockForgeExecutor
 from ai_dev_agent_pulse import MockPulseExecutor
-from ai_dev_agent_qa import MockQAExecutor
+from ai_dev_agent_qa import DeterministicQAExecutor, MockQAExecutor
 from ai_dev_agent_scout import MockScoutExecutor
 from ai_dev_shared import AGENT_COLORS, AGENT_ROLES, Task
 
@@ -31,6 +31,23 @@ class MockFactory:
 
     def __call__(self, task: Task, ctx: ExecutionContext):
         return self.executor_cls(task, ctx)
+
+
+@dataclass(frozen=True)
+class QAFactory:
+    """Select mock or deterministic QA executor."""
+
+    agent_id: str = "qa"
+
+    def __call__(self, task: Task, ctx: ExecutionContext) -> Any:
+        from .config import settings
+
+        if settings.qa_mode.lower() == "deterministic":
+            executor = DeterministicQAExecutor(task, ctx)
+            executor.timeout = settings.qa_timeout
+            return executor
+
+        return MockQAExecutor(task, ctx)
 
 
 @dataclass(frozen=True)
@@ -69,10 +86,11 @@ def build_registry() -> AgentRegistry:
     table registrations built on another AgentExecutor implementation."""
     registry = AgentRegistry()
 
-    # Register ATLAS, SCOUT, QA, PULSE with mock factories
+    # Register ATLAS, SCOUT and PULSE with mock factories.
+    # FORGE and QA have selectable execution modes.
     for agent_id, cls in _MOCK_CLASSES.items():
-        if agent_id == "forge":
-            continue  # FORGE handled separately
+        if agent_id in {"forge", "qa"}:
+            continue
 
         registry.register(
             MockFactory(agent_id, cls),
@@ -80,6 +98,13 @@ def build_registry() -> AgentRegistry:
             role=AGENT_ROLES[agent_id],
             color=AGENT_COLORS[agent_id],
         )
+
+    registry.register(
+        QAFactory(),
+        name=_name("qa"),
+        role=AGENT_ROLES["qa"],
+        color=AGENT_COLORS["qa"],
+    )
 
     # Register FORGE with smart factory (mock or hermes based on FORGE_MODE)
     registry.register(
