@@ -91,4 +91,17 @@ class ExecutionContext:
             _caller_agent=agent_id,
         )
 
-        return self.registry.executor_for(agent_id, self.task, child_ctx)
+        executor = self.registry.executor_for(agent_id, self.task, child_ctx)
+
+        # Keep the child context attached to the executor returned for
+        # backwards compatibility with existing dispatch() callers.
+        setattr(executor, "_dispatch_ctx", child_ctx)
+        return executor
+
+    async def dispatch_stream(self, agent_id: str):
+        """Dispatch a worker and stream events with its child context."""
+        executor = self.dispatch(agent_id)
+        child_ctx = getattr(executor, "_dispatch_ctx")
+
+        async for event in executor.execute(self.task, child_ctx):
+            yield event

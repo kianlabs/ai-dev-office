@@ -21,29 +21,22 @@ from ai_dev_tools import ToolChest, default_tools
 
 
 def build_plan(task: Task, intent: str) -> list[Subtask]:
-    plans = {
-        "auth": [
-            ("Define auth flow & session strategy", "scout"),
-            ("Implement credentials provider + route guard", "forge"),
-            ("Add integration tests & monitor auth health", "qa"),
-        ],
-        "deploy": [
-            ("Map CI/CD pipeline to target platform", "scout"),
-            ("Configure deployment settings & secrets", "forge"),
-            ("Verify deploy + monitor release health", "pulse"),
-        ],
-        "bug": [
-            ("Reproduce & isolate regression source", "scout"),
-            ("Implement fix with minimal diff", "forge"),
-            ("Run regression suite + watch logs", "qa"),
-        ],
-        "feature": [
-            ("Research API surface & data model", "scout"),
-            ("Implement feature modules", "forge"),
-            ("Test, typecheck & harden", "qa"),
-        ],
+    """Build the controlled Phase 3C.1 implementation pipeline."""
+
+    labels = {
+        "auth": "Implement authentication requirements",
+        "deploy": "Implement deployment requirements",
+        "bug": "Implement minimal regression fix",
+        "feature": "Implement requested feature",
     }
-    return [Subtask(title=t, agent_id=a) for t, a in plans[intent]]
+
+    return [
+        Subtask(title=labels[intent], agent_id="forge"),
+        Subtask(
+            title="Verify implementation and run deterministic QA gate",
+            agent_id="qa",
+        ),
+    ]
 
 
 class MockAtlasExecutor:
@@ -75,20 +68,13 @@ class MockAtlasExecutor:
         yield await r.tick(r.working("Dispatching subtasks", task_status=TaskStatus.RUNNING))
         yield await r.tick(r.waiting("Agents executing subtasks"))
 
-        # Dispatch to SCOUT via registry (not direct import)
-        scout = ctx.dispatch("scout")
-        async for ev in scout.execute(task, ctx):
+        # Dispatch to FORGE via registry using its child context.
+        async for ev in ctx.dispatch_stream("forge"):
             yield await r.tick(ev)
 
-        # Dispatch to FORGE via registry
-        forge = ctx.dispatch("forge")
-        async for ev in forge.execute(task, ctx):
-            yield await r.tick(ev)
-
-        # Dispatch to QA via registry
-        qa = ctx.dispatch("qa")
+        # Dispatch to QA via registry using its child context.
         qa_score: str | None = None
-        async for ev in qa.execute(task, ctx):
+        async for ev in ctx.dispatch_stream("qa"):
             if ev.kind == EventKind.QA_RESULT:
                 qa_score = ev.score
             yield await r.tick(ev)
@@ -106,13 +92,17 @@ class MockAtlasExecutor:
             )
             return
 
-        # Dispatch to PULSE via registry
-        pulse = ctx.dispatch("pulse")
-        async for ev in pulse.execute(task, ctx):
-            yield await r.tick(ev)
-
-        yield await r.tick(r.working("Consolidating implementation report", task_status=TaskStatus.REVIEW))
-        yield await r.tick(r.review("All subtasks complete · code compiles · tests green · deploy healthy"))
-        yield await r.tick(r.review("Final sign-off: implementation meets acceptance criteria."))
+        yield await r.tick(
+            r.working(
+                "Reviewing FORGE implementation and QA result",
+                task_status=TaskStatus.REVIEW,
+            )
+        )
+        yield await r.tick(
+            r.review("FORGE implementation complete · QA gate passed")
+        )
+        yield await r.tick(
+            r.review("Final sign-off: implementation accepted.")
+        )
         yield await r.tick(r.idle("Idle"))
         yield await r.tick(r.result(TaskStatus.DONE, f"Completed: {task.title}"))
