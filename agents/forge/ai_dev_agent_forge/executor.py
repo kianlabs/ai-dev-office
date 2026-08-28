@@ -250,9 +250,10 @@ Complete this task inside your workspace, then provide a brief summary of what w
                 "error": f"Required Hermes path missing: {', '.join(missing)}",
             }
 
-        # Synthetic writable HOME. Hermes may create state.db, logs, sessions,
-        # and other runtime state here without modifying the host ~/.hermes.
-        sandbox_home = self._workspace / ".ado-hermes-home"
+        # Keep Hermes runtime state outside the task workspace so FORGE
+        # cannot inspect it through /workspace.
+        runtime_root = self._workspace.parent / ".ado-runtime" / self._workspace.name
+        sandbox_home = runtime_root / "home"
         sandbox_hermes_home = sandbox_home / ".hermes"
         sandbox_hermes_home.mkdir(parents=True, exist_ok=True)
 
@@ -265,6 +266,10 @@ Complete this task inside your workspace, then provide a brief summary of what w
                 BWRAP_PATH,
                 "--unshare-all",
                 "--share-net",  # Provider API requires network access.
+
+                # Do not leak the parent/backend environment into FORGE.
+                # Required variables are explicitly allowlisted below.
+                "--clearenv",
 
                 # Task workspace is the only project data exposed read/write.
                 "--bind", str(self._workspace), "/workspace",
@@ -312,6 +317,8 @@ Complete this task inside your workspace, then provide a brief summary of what w
                 "--setenv", "HOME", SANDBOX_HOME,
                 "--setenv", "USER", "forge",
                 "--setenv", "LOGNAME", "forge",
+                "--setenv", "PATH", "/usr/local/bin:/usr/bin:/bin",
+                "--setenv", "LANG", "C.UTF-8",
                 "--setenv",
                 "HERMES_CUSTOM_LOCALHOST_20128_API_KEY",
                 archkian_api_key,
@@ -331,6 +338,7 @@ Complete this task inside your workspace, then provide a brief summary of what w
                 *bwrap_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                start_new_session=True,
             )
 
             try:
@@ -338,7 +346,16 @@ Complete this task inside your workspace, then provide a brief summary of what w
                     proc.communicate(), timeout=self.timeout
                 )
             except asyncio.TimeoutError:
-                proc.kill()
+                # Kill the whole sandbox process group so Hermes/tool children
+                # cannot survive after the bwrap parent is terminated.
+                import os
+                import signal
+
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
                 await proc.wait()
                 raise
 
