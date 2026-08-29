@@ -2,24 +2,22 @@
 
 import OfficeAsset from "../assets/OfficeAsset";
 
-export default function Keyboard({
+export default function Laptop({
   position,
   rotation = 0,
+  scale = 0.9,
 }: {
   position: [number, number, number];
   rotation?: number;
+  scale?: number;
 }) {
   return (
-    <group
+    <OfficeAsset
+      src="/models/office/workstation/laptop.glb"
       position={position}
       rotation={[0, rotation, 0]}
-    >
-      <OfficeAsset
-        src="/models/office/workstation/keyboard.glb"
-        rotation={[0, Math.PI / 2, 0]}
-        scale={0.88}
-        bottomCenter
-      />
-    </group>
+      scale={scale}
+      bottomCenter
+    />
   );
 }

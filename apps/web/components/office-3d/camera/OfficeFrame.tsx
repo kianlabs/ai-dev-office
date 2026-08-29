@@ -7,15 +7,14 @@ import type { OfficeCameraRefs } from "../useOfficeCamera";
 
 // View direction (normalized) and distance from the scene, plus a little margin
 // so the whole miniature office fits comfortably inside the viewport.
-const VIEW_DIR = new THREE.Vector3(0, 0.62, 0.8).normalize();
-const VIEW_DIST = 30;
-const MARGIN = 1.14;
+const VIEW_DIR = new THREE.Vector3(0.72, 0.9, 1.0).normalize();
+const VIEW_DIST = 27;
+const MARGIN = 1.02;
 
-// The office footprint: open-plan floor is 26 x 18 (x +/-13, z -9..9); the back
-// wall sits at z -9.8 and wall tops reach y 3. We frame against these explicit
-// bounds so hidden furniture legs / rotated stations never skew the fit.
-const OFFICE_MIN = new THREE.Vector3(-13, 0, -10);
-const OFFICE_MAX = new THREE.Vector3(13, 3.2, 9);
+// Current compact office footprint: 22 x 15.
+// Keep bounds aligned with MainOffice so framing does not include empty space.
+const OFFICE_MIN = new THREE.Vector3(-11.1, 0, -7.55);
+const OFFICE_MAX = new THREE.Vector3(11.1, 2.8, 7.55);
 
 // Compute a camera framing that fits the office footprint and apply it on the
 // first frame. The fitted state is stored so "Reset View" can restore it.

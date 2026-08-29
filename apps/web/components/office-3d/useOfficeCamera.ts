@@ -30,9 +30,9 @@ export function resetOfficeCamera({ camRef, controlsRef, fittedRef }: OfficeCame
   const controls = controlsRef.current;
   const fitted = fittedRef.current;
 
-  let position: [number, number, number] = [0, 22, 20];
-  let target: [number, number, number] = [0, 0, 0];
-  let zoom = 26;
+  let position: [number, number, number] = [15, 18, 20];
+  let target: [number, number, number] = [0, 0.7, 0];
+  let zoom = 42;
 
   if (fitted) {
     position = fitted.position;

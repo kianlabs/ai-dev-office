@@ -21,3 +21,18 @@ body {
   background: #1f2a44;
   border-radius: 4px;
 }
+html,
+body {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+}
+
+button,
+textarea,
+input {
+  font: inherit;
+}
