@@ -200,8 +200,9 @@ export default function SharedDesk({ agents }: SharedDeskProps) {
             position={seat.position}
             rotation={[0, seatY, 0]}
           >
-            {/* Chair — rotation π faces the table (local -Z), like the agent. */}
-            <OfficeChair position={seat.chairOffset} rotation={Math.PI} />
+            {/* Chair — rotation 0 (OfficeChair adds π internally) makes it
+                face local -Z, i.e. the table, matching the agent. */}
+            <OfficeChair position={seat.chairOffset} rotation={0} />
 
             {/* Agent standing clearly behind the chair, outside the table. */}
             <AgentDummy
