@@ -1,7 +1,7 @@
 "use client";
 
 import { useGLTF, useAnimations } from "@react-three/drei";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import * as THREE from "three";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 
@@ -13,10 +13,13 @@ interface AgentCharacterProps {
   /** World-space pivot override. When omitted the model is auto-centered on
    *  X/Z and planted on the floor (feet at Y=0). */
   offset?: [number, number, number];
+  /** Native clip currently played on the owned mixer. Falls back to "Idle"
+   *  and crossfades between clips. */
+  animation?: "Idle" | "Walk";
 }
 
-const IDLE_CLIP_NAME = "Idle";
-const IDLE_FADE_SECONDS = 0.4;
+const DEFAULT_CLIP_NAME = "Idle";
+const CLIP_FADE_SECONDS = 0.4;
 
 const AGENT_MODELS = [
   "/models/agents/characters/men_suit.gltf",
@@ -47,6 +50,7 @@ export default function AgentCharacter({
   rotation = 0,
   scale = 1,
   offset,
+  animation = DEFAULT_CLIP_NAME,
 }: AgentCharacterProps) {
   const gltf = useGLTF(modelPath);
 
@@ -67,22 +71,34 @@ export default function AgentCharacter({
   // never share mutable state between stations.
   const { actions } = useAnimations(gltf.animations, scene);
 
-  // Phase 1: every character loops its own native Idle clip continuously.
-  // Native Idle is the most readable of the kit's natural standing clips
-  // (Body breathe ~8mm + subtle wrist/finger motion; Idle_Neutral is flatter).
-  // Idle clips only key regular bones (never Root/Hips), so there is no
-  // root-motion drift and feet stay planted. The crossfade also hides the
-  // bind (T/A-pose) frame on first mount.
+  // Crossfade between native clips. Native Idle is the most readable of the
+  // kit's natural standing clips (Body breathe ~8mm + subtle wrist/finger
+  // motion; Idle_Neutral is flatter). Idle and Walk clips only key regular
+  // bones (never Root/Hips), so there is no root-motion drift and feet stay
+  // planted. Switching Idle <-> Walk fades so the bind (T/A-pose) frame
+  // never shows through.
+  const currentClipRef = useRef<string | null>(null);
+
   useEffect(() => {
-    const idle = actions[IDLE_CLIP_NAME];
-    if (!idle) return;
+    const next = actions[animation];
+    if (!next) return;
 
-    idle.reset();
-    idle.fadeIn(IDLE_FADE_SECONDS);
-    idle.play();
+    const previous = currentClipRef.current;
+    currentClipRef.current = animation;
 
+    if (previous && previous !== animation) {
+      actions[previous]?.fadeOut(CLIP_FADE_SECONDS);
+    }
+
+    next.reset();
+    next.fadeIn(CLIP_FADE_SECONDS);
+    next.play();
+  }, [actions, animation]);
+
+  useEffect(() => {
     return () => {
-      idle.fadeOut(IDLE_FADE_SECONDS);
+      const name = currentClipRef.current ?? DEFAULT_CLIP_NAME;
+      actions[name]?.fadeOut(CLIP_FADE_SECONDS);
     };
   }, [actions]);
 
