@@ -3,11 +3,13 @@
 import { Suspense } from "react";
 
 import MixamoAgent from "../agents/MixamoAgent";
+import type { DelegationMap } from "../agents/useAgentDelegation";
 import OfficeChair from "../furniture/OfficeChair";
 import Keyboard from "../furniture/Keyboard";
 import Monitor from "../furniture/Monitor";
 import { agentRestAnchor } from "../navigation/layout";
 import { demoRouteFor } from "../navigation/routes";
+import { statusBubbleFor } from "../navigation/handoff";
 import type { AgentVisualState } from "../semantic";
 import type { AgentId } from "../navigation/waypoints";
 
@@ -20,6 +22,8 @@ interface SharedDeskAgent {
 
 interface SharedDeskProps {
   agents: SharedDeskAgent[];
+  /** Seated delegation inputs keyed by agent (from useAgentDelegation). */
+  delegations?: DelegationMap;
 }
 
 /**
@@ -187,7 +191,7 @@ const COLORS: Record<string, string> = {
   pulse: "#22d3ee",
 };
 
-export default function SharedDesk({ agents }: SharedDeskProps) {
+export default function SharedDesk({ agents, delegations }: SharedDeskProps) {
   return (
     <group>
       {/* ====================== DESK BODY ====================== */}
@@ -253,10 +257,16 @@ export default function SharedDesk({ agents }: SharedDeskProps) {
                 remains in the tree as a dormant fallback. */}
             <Suspense fallback={null}>
               <MixamoAgent
-                agentId={agentId}
-                position={agentRestAnchor(agentId)}
+                agentId={agentId as AgentId}
+                position={agentRestAnchor(agentId as AgentId)}
                 rotation={seat.rotation}
-                route={demoRouteFor(agentId)}
+                route={demoRouteFor(agentId as AgentId)}
+                delegation={delegations?.[agentId as AgentId]}
+                workBubble={statusBubbleFor(
+                  agentId as AgentId,
+                  agent.visualState.mode,
+                  agent.visualState.active,
+                )}
               />
             </Suspense>
           </group>

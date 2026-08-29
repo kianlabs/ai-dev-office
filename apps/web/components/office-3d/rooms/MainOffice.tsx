@@ -3,11 +3,13 @@
 import type { ActivityItem, AgentRecord } from "@/lib/types";
 
 import Plant from "../furniture/Plant";
+import { useAgentDelegation } from "../agents/useAgentDelegation";
 import {
   applyTransientVisualState,
   deriveAgentVisualState,
   useTransientAgentVisuals,
 } from "../semantic";
+import { isMovementDemoEnabled } from "../navigation/routes";
 import SharedDesk from "../stations/SharedDesk";
 
 import Lounge from "./Lounge";
@@ -112,8 +114,7 @@ export default function MainOffice({
   const transientVisuals =
     useTransientAgentVisuals(activity);
 
-  const team = [
-    { agentId: "atlas", name: "ATLAS" },
+  const team = [    { agentId: "atlas", name: "ATLAS" },
     { agentId: "scout", name: "SCOUT" },
     { agentId: "forge", name: "FORGE" },
     { agentId: "qa", name: "QA" },
@@ -148,6 +149,15 @@ export default function MainOffice({
         transientVisuals[agentId],
       ),
     };
+  });
+
+  // Seated delegation: driven from ATLAS's existing activity text. All agents
+  // stay seated and only emit speech/talk inputs — never movement. The walk
+  // choreography was removed. ?movementDemo=1 keeps overriding the semantic flow.
+  const { delegations } = useAgentDelegation({
+    atlasActivity:
+      agents.find((item) => item.agent_id === "atlas")?.activity ?? "",
+    demoActive: isMovementDemoEnabled(),
   });
 
   return (
@@ -267,7 +277,7 @@ export default function MainOffice({
       ===================================================== */}
 
       <group position={[0, 0, 0.2]}>
-        <SharedDesk agents={sharedAgents} />
+        <SharedDesk agents={sharedAgents} delegations={delegations} />
       </group>
 
       <FoosballTable position={[4.4, 0, -0.7]} />

@@ -29,6 +29,7 @@ export const MIXAMO_CLIP_URLS = {
   walking: "/models/agents/mixamo/walking.fbx",
   standToSit: "/models/agents/mixamo/stand-to-sit.fbx",
   seatedIdle: "/models/agents/mixamo/seated-idle.fbx",
+  sittingTalking: "/models/agents/mixamo/sitting-talking.fbx",
   sitToType: "/models/agents/mixamo/sit-to-type.fbx",
   typing: "/models/agents/mixamo/typing.fbx",
   typeToSit: "/models/agents/mixamo/type-to-sit.fbx",
@@ -90,6 +91,25 @@ export const MIXAMO_SEQUENCE: readonly MixamoPhase[] = [
   { clip: "typeToSit", mode: "once" },
   { clip: "seatedIdle", mode: "loop", seconds: 8 },
   { clip: "sitToStand", mode: "once" },
+];
+
+/** How long a seated agent holds the SeatedTalking clip on a delegation /
+ *  announcement before returning to its seated work cycle. */
+export const SEATED_TALK_SECONDS = 1.6;
+
+/**
+ * THE seated work cycle used during ACTIVE work. Agents stay at their desk and
+ * never stand: no convenient `standToSit`/`sitToStand` in here, so a seated
+ * agent can never "replay" entering/leaving the chair from a semantic change.
+ * Typing specialists cycle between the keyboard and a brief seated rest; the
+ * same loop is reused for pulse-style monitoring (the spoken part is already
+ * over by the time this plays).
+ */
+export const MIXAMO_SEATED_SEQUENCE: readonly MixamoPhase[] = [
+  { clip: "sitToType", mode: "once" },
+  { clip: "typing", mode: "loop", seconds: 12 },
+  { clip: "typeToSit", mode: "once" },
+  { clip: "seatedIdle", mode: "loop", seconds: 4 },
 ];
 
 /** Crossfade used on every phase change. Long enough that the clips'

@@ -4,6 +4,7 @@ import * as THREE from "three";
 import {
   MIXAMO_AGENTS,
   MIXAMO_CLIP_URLS,
+  MIXAMO_SEATED_SEQUENCE,
   MIXAMO_SEQUENCE,
   detectMixamoPrefix,
   makeClipInPlace,
@@ -250,13 +251,13 @@ describe("makeClipInPlace", () => {
 });
 
 describe("MIXAMO_SEQUENCE", () => {
-  it("covers every sequencer clip with a URL (except Walking, which is demo-driven)", () => {
-    // Walking is not sequencer-driven — the navigation demo plays it while an
-    // agent moves, so it has a URL but no place in the seated cycle.
+  it("covers every standing entry/exit clip with a URL (except the non-cycle clips)", () => {
+    // Walking is demo-driven; Sitting Talking is the seated-talk clip, played
+    // by the seated micro-machine — neither is part of the standing cycle.
     const clipsInSequence = new Set(MIXAMO_SEQUENCE.map((p) => p.clip));
     expect([...clipsInSequence].sort()).toEqual(
       Object.keys(MIXAMO_CLIP_URLS)
-        .filter((key) => key !== "walking")
+        .filter((key) => key !== "walking" && key !== "sittingTalking")
         .sort(),
     );
   });
@@ -283,5 +284,24 @@ describe("MIXAMO_SEQUENCE", () => {
         expect(phase.seconds).toBeGreaterThan(0);
       }
     }
+  });
+});
+
+describe("MIXAMO_SEATED_SEQUENCE", () => {
+  it("keeps an active agent seated — no stand-to-sit/sit-to-stand/walking", () => {
+    for (const phase of MIXAMO_SEATED_SEQUENCE) {
+      expect(phase.clip).not.toBe("standToSit");
+      expect(phase.clip).not.toBe("sitToStand");
+      expect(phase.clip).not.toBe("walking");
+    }
+  });
+
+  it("works the keyboard and rests seated, without ever leaving the chair", () => {
+    expect(MIXAMO_SEATED_SEQUENCE[0].clip).toBe("sitToType");
+    expect(MIXAMO_SEATED_SEQUENCE.at(-1)?.clip).toBe("seatedIdle");
+  });
+
+  it("loads the SeatedTalking clip into the clip registry", () => {
+    expect(MIXAMO_CLIP_URLS.sittingTalking).toContain("sitting-talking.fbx");
   });
 });
