@@ -5,6 +5,7 @@ import { FormEvent, KeyboardEvent, useMemo, useState } from "react";
 import ActivityFeed from "@/components/activity-feed";
 import ClientOffice from "@/components/office-3d/ClientOffice";
 import { useControlRoom } from "@/lib/use-control-room";
+import { taskInputParts } from "@/lib/task-input";
 import { AGENT_ORDER, type AgentRecord } from "@/lib/types";
 
 function Icon({
@@ -157,13 +158,10 @@ export default function Home() {
     setSubmitting(true);
 
     try {
-      const firstLine = text.split("\n")[0].trim();
-      const title =
-        firstLine.length > 96
-          ? `${firstLine.slice(0, 93)}...`
-          : firstLine;
-
-      await room.addTask(title, text);
+      // Keep the full multi-line content as the task description; only the
+      // display title is the (shortened) first line.
+      const { displayTitle, content } = taskInputParts(prompt);
+      await room.addTask(displayTitle, content);
       setPrompt("");
     } finally {
       setSubmitting(false);

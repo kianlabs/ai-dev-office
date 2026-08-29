@@ -27,11 +27,58 @@ class AtlasPlan:
 
 
 def _task_text(task: Task) -> str:
+    # NOTE: the planner reads the COMPLETE task (display title + full content).
+    # `task.description` carries the exact multi-line user instructions and is
+    # never truncated to the first line. `task.title` is only a short display
+    # summary. Never let a display-first-line replace `task.description`. The
+    # title is repeated here for the convenience of single-line submissions
+    # where the user only typed a title with no description.
     return f"{task.title}\n{task.description}".lower()
 
 
 def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
     return any(term in text for term in terms)
+
+
+# Canonical dispatch order for the specialist roster.
+ROLE_ORDER = ("scout", "forge", "qa", "pulse")
+
+# Phrases that request the FULL specialist roster regardless of keywords.
+_ALL_SPECIALISTS_PHRASES = (
+    "libatkan semua specialist",
+    "libatkan seluruh specialist",
+    "libatkan semua agen",
+    "libatkan seluruh agen",
+    "semua specialist",
+    "seluruh specialist",
+    "semua agen",
+    "seluruh agen",
+    "all specialists",
+    "all agents",
+    "all roles",
+    "involve all specialists",
+    "involve all agents",
+)
+
+
+def _explicit_role_mentions(text: str) -> tuple[str, ...]:
+    """Specialist roles the task explicitly names, in order of first mention.
+
+    Matches whole words (SCOUT/FORGE/QA/PULSE) so numbered lists, role chains
+    ("SCOUT → FORGE → QA → PULSE") and plain prose ("libatkan FORGE dan QA")
+    all surface the roles the user explicitly asked for.
+    """
+    found: list[tuple[int, str]] = []
+    for token in ROLE_ORDER:
+        match = re.search(rf"\b{token}\b", text)
+        if match:
+            found.append((match.start(), token))
+    found.sort()
+    return tuple(token for _, token in found)
+
+
+def _all_specialists_requested(text: str) -> bool:
+    return _contains_any(text, _ALL_SPECIALISTS_PHRASES)
 
 
 def _contains_fuzzy_word(
@@ -295,6 +342,32 @@ def build_role_aware_plan(task: Task, intent: str) -> AtlasPlan:
         reasons = {
             "scout": "request is ambiguous; gather context before modification",
         }
+
+    # ---- Explicit role requirements take precedence ----------------------
+    # If the user explicitly names specialist roles (a role chain such as
+    # "SCOUT → FORGE → QA → PULSE", a numbered list naming roles, or a phrase
+    # like "libatkan semua specialist"), the plan MUST include every requested
+    # role. The heuristic selection above is still the base for ordinary
+    # tasks with no explicit roles, so minimal role-aware routing is preserved.
+    #
+    # Explicit roles are a superset: we honour them AND keep any roles the
+    # heuristic already picked, so we never drop a requested specialist while
+    # also never forcing a plain task to use every agent.
+    explicit_roles = _explicit_role_mentions(text)
+    if _all_specialists_requested(text) or set(explicit_roles) == set(ROLE_ORDER):
+        explicit_roles = ROLE_ORDER
+
+    if explicit_roles:
+        ordered: list[str] = []
+        for rid in explicit_roles:
+            if rid not in ordered:
+                ordered.append(rid)
+        for rid in agents:
+            if rid not in ordered:
+                ordered.append(rid)
+        agents = tuple(ordered)
+        for rid in explicit_roles:
+            reasons.setdefault(rid, "explicitly required by the user task")
 
     titles = {
         "scout": "Research requirements, constraints, and relevant context",
