@@ -34,12 +34,15 @@ interface SharedDeskProps {
  *   tabletop top Y ≈ 0.78
  *
  * Agents and chairs MUST be outside the footprint (|X| > 1.575 or |local Z| > 3.40).
- * Devices MUST be on the tabletop (Y ≈ 0.79–0.82) inside the footprint.
+ * Devices MUST be on the tabletop (Y = 0.78) inside the footprint.
  *
- * Rotations (world Y-rotation for chairs and monitor facing):
- *   ATLAS  (south end): chair faces +Z  → Math.PI / 2 for chair, 0 for monitor
- *   SCOUT/QA (left):   chair faces +X  → Math.PI for chair, -Math.PI/2 for monitor
- *   FORGE/PULSE (right): chair faces -X → 0 for chair, Math.PI/2 for monitor
+ * Device placement/orientation restores the accepted seat-local layout from
+ * the b3ee78f baseline (seat origin + R_y(seatRotation) · deviceOffset),
+ * flattened to world space. Devices face their agent in world space:
+ *   ATLAS  — seat yaw π → both device yaw π (front −Z toward agent z ≈ −4.1)
+ *   SCOUT/QA (left, −X) — device yaw −π/2 (front −X toward agent)
+ *   FORGE/PULSE (right, +X) — device yaw π/2 (front +X toward agent)
+ * Chair yaw faces the chair GLB front toward the table.
  *
  * AgentDummy is always positioned at AGENT_HOME (world space) and does not
  * live inside the seat group — it navigates the whole office.
@@ -47,7 +50,8 @@ interface SharedDeskProps {
 interface SeatConfig {
   agentId: SharedDeskAgent["agentId"];
   modelPath: string;
-  /** Y-rotation of the agent (world) — used for baseYaw and chair/monitor */
+  /** World yaw of the seat/agent. Also the monitor & keyboard yaw so each
+   *  device faces its agent (matches the accepted seat-local frame). */
   rotation: number;
   /** Chair world-space position (local to SharedDesk group) */
   chairPosition: [number, number, number];
@@ -55,8 +59,6 @@ interface SeatConfig {
   chairRotation: number;
   /** Monitor world-space position (local to SharedDesk group) */
   monitorPosition: [number, number, number];
-  /** Monitor Y-rotation so screen faces toward the agent */
-  monitorRotation: number;
   /** Keyboard world-space position (local to SharedDesk group) */
   keyboardPosition: [number, number, number];
 }
@@ -72,108 +74,108 @@ interface SeatConfig {
 //
 // ATLAS  — south end:  agent world z ≈ -4.1, chair world z ≈ -3.8
 //           local chair z = -3.8 - 0.2 = -4.0  (outside footprint edge -3.40) ✓
-//           devices local z ≈ -2.9 .. -2.6      (inside footprint) ✓
+//           devices local z ≈ -3.15 .. -2.9      (inside footprint) ✓
 //
-// SCOUT  — left side:  agent world x ≈ -2.15, chair world x ≈ -1.9
+// SCOUT  — left side:  agent world x ≈ -2.325, chair world x ≈ -1.9
 //           local chair x = -1.9                (outside footprint edge -1.575) ✓
-//           devices local x ≈ -1.0 .. -0.5      (inside footprint) ✓
+//           devices local x ≈ -1.425 .. -1.05     (inside footprint) ✓
 //
 // QA     — left side:  same x targets as SCOUT, different z row
 //
-// FORGE  — right side: agent world x ≈ +2.15, chair world x ≈ +1.9
+// FORGE  — right side: agent world x ≈ +2.325, chair world x ≈ +1.9
 //           local chair x = +1.9                (outside footprint edge +1.575) ✓
-//           devices local x ≈ +1.0 .. +0.5      (inside footprint) ✓
+//           devices local x ≈ +1.05 .. +1.425     (inside footprint) ✓
 //
 // PULSE  — right side: same x targets as FORGE, different z row
 const SEATS: SeatConfig[] = [
   // ── ATLAS ─────────────────────────────────────────────────────────────────
   // Agent world: (0, 0, -4.1) → AGENT_HOME.atlas = [0, 0, -4.1] ✓
   // Chair world: (0, 0, -3.8) → local (0, 0, -4.0)  outside footprint (-3.40) ✓
-  // Monitor local: (0, 0.80, -2.9)  inside footprint ✓
-  // Keyboard local: (0, 0.80, -2.6) inside footprint ✓
+  // Devices local (b3ee78f: seat (0,0,-3.4), seat yaw π, offsets −0.5 / −0.25):
+  //   monitor (0, 0.78, -2.9)  keyboard (0, 0.78, -3.15)  inside footprint ✓
+  //   keyboard (−3.15) sits between the agent (−4.1) and monitor (−2.9) ✓
   // Chair faces +Z (toward table interior), rotation = π/2
-  // Monitor screen faces +Z (toward agent at -Z), monitorRotation = 0
+  // Devices yaw = π → front −Z toward the agent at −Z
   {
     agentId: "atlas",
     modelPath: "/models/agents/characters/men_suit.gltf",
     rotation: Math.PI,
     chairPosition: [0, 0, -4.0],
     chairRotation: Math.PI / 2,
-    monitorPosition: [0, 0.80, -2.9],
-    monitorRotation: 0,
-    keyboardPosition: [0, 0.80, -2.6],
+    monitorPosition: [0, 0.78, -2.9],
+    keyboardPosition: [0, 0.78, -3.15],
   },
 
   // ── SCOUT ─────────────────────────────────────────────────────────────────
-  // Agent world: (-2.15, 0, -1.2) → AGENT_HOME.scout = [-2.325, 0, -1.2]
+  // Agent world: (-2.325, 0, -1.2) → AGENT_HOME.scout ✓
   // Chair world: (-1.9, 0, -1.2) → local (-1.9, 0, -1.4)  outside footprint (-1.575) ✓
-  // Monitor local: (-1.0, 0.80, -1.4)  inside footprint ✓
-  // Keyboard local: (-0.6, 0.80, -1.4) inside footprint ✓
+  // Devices local (b3ee78f: seat (-1.575,0,-1.4), seat yaw −π/2, offsets −0.525/−0.15):
+  //   monitor (-1.05, 0.78, -1.4)  keyboard (-1.425, 0.78, -1.4)  inside footprint ✓
+  //   keyboard (−1.425) between the agent (−2.325) and monitor (−1.05) ✓
   // Chair faces +X (toward table interior), rotation = π
-  // Monitor screen faces -X (toward agent at -X), monitorRotation = -π/2
+  // Devices yaw = −π/2 → front −X toward the agent at −X
   {
     agentId: "scout",
     modelPath: "/models/agents/characters/women_casual.gltf",
     rotation: -Math.PI / 2,
     chairPosition: [-1.9, 0, -1.4],
     chairRotation: Math.PI,
-    monitorPosition: [-1.0, 0.80, -1.4],
-    monitorRotation: -Math.PI / 2,
-    keyboardPosition: [-0.6, 0.80, -1.4],
+    monitorPosition: [-1.05, 0.78, -1.4],
+    keyboardPosition: [-1.425, 0.78, -1.4],
   },
 
   // ── QA ────────────────────────────────────────────────────────────────────
-  // Agent world: (-2.15, 0, 1.6) → AGENT_HOME.qa = [-2.325, 0, 1.6]
+  // Agent world: (-2.325, 0, 1.6) → AGENT_HOME.qa ✓
   // Chair world: (-1.9, 0, 1.6) → local (-1.9, 0, 1.4)  outside footprint (-1.575) ✓
-  // Monitor local: (-1.0, 0.80, 1.4)  inside footprint ✓
-  // Keyboard local: (-0.6, 0.80, 1.4) inside footprint ✓
+  // Devices local (b3ee78f: seat (-1.575,0,1.4), seat yaw −π/2, offsets −0.525/−0.15):
+  //   monitor (-1.05, 0.78, 1.4)  keyboard (-1.425, 0.78, 1.4)  inside footprint ✓
+  //   keyboard (−1.425) between the agent (−2.325) and monitor (−1.05) ✓
   // Chair faces +X (toward table interior), rotation = π
-  // Monitor screen faces -X (toward agent at -X), monitorRotation = -π/2
+  // Devices yaw = −π/2 → front −X toward the agent at −X
   {
     agentId: "qa",
     modelPath: "/models/agents/characters/women_formal.gltf",
     rotation: -Math.PI / 2,
     chairPosition: [-1.9, 0, 1.4],
     chairRotation: Math.PI,
-    monitorPosition: [-1.0, 0.80, 1.4],
-    monitorRotation: -Math.PI / 2,
-    keyboardPosition: [-0.6, 0.80, 1.4],
+    monitorPosition: [-1.05, 0.78, 1.4],
+    keyboardPosition: [-1.425, 0.78, 1.4],
   },
 
   // ── FORGE ─────────────────────────────────────────────────────────────────
-  // Agent world: (2.15, 0, -1.2) → AGENT_HOME.forge = [2.325, 0, -1.2]
+  // Agent world: (2.325, 0, -1.2) → AGENT_HOME.forge ✓
   // Chair world: (1.9, 0, -1.2) → local (1.9, 0, -1.4)  outside footprint (+1.575) ✓
-  // Monitor local: (1.0, 0.80, -1.4)  inside footprint ✓
-  // Keyboard local: (0.6, 0.80, -1.4) inside footprint ✓
+  // Devices local (b3ee78f: seat (1.575,0,-1.4), seat yaw π/2, offsets −0.525/−0.15):
+  //   monitor (1.05, 0.78, -1.4)  keyboard (1.425, 0.78, -1.4)  inside footprint ✓
+  //   keyboard (1.425) between the agent (2.325) and monitor (1.05) ✓
   // Chair faces -X (toward table interior), rotation = 0
-  // Monitor screen faces +X (toward agent at +X), monitorRotation = π/2
+  // Devices yaw = π/2 → front +X toward the agent at +X
   {
     agentId: "forge",
     modelPath: "/models/agents/characters/men_casual_hoodie.gltf",
     rotation: Math.PI / 2,
     chairPosition: [1.9, 0, -1.4],
     chairRotation: 0,
-    monitorPosition: [1.0, 0.80, -1.4],
-    monitorRotation: Math.PI / 2,
-    keyboardPosition: [0.6, 0.80, -1.4],
+    monitorPosition: [1.05, 0.78, -1.4],
+    keyboardPosition: [1.425, 0.78, -1.4],
   },
 
   // ── PULSE ─────────────────────────────────────────────────────────────────
-  // Agent world: (2.15, 0, 1.6) → AGENT_HOME.pulse = [2.325, 0, 1.6]
+  // Agent world: (2.325, 0, 1.6) → AGENT_HOME.pulse ✓
   // Chair world: (1.9, 0, 1.6) → local (1.9, 0, 1.4)  outside footprint (+1.575) ✓
-  // Monitor local: (1.0, 0.80, 1.4)  inside footprint ✓
-  // Keyboard local: (0.6, 0.80, 1.4) inside footprint ✓
+  // Devices local (b3ee78f: seat (1.575,0,1.4), seat yaw π/2, offsets −0.525/−0.15):
+  //   monitor (1.05, 0.78, 1.4)  keyboard (1.425, 0.78, 1.4)  inside footprint ✓
+  //   keyboard (1.425) between the agent (2.325) and monitor (1.05) ✓
   // Chair faces -X (toward table interior), rotation = 0
-  // Monitor screen faces +X (toward agent at +X), monitorRotation = π/2
+  // Devices yaw = π/2 → front +X toward the agent at +X
   {
     agentId: "pulse",
     modelPath: "/models/agents/characters/men_casual_2.gltf",
     rotation: Math.PI / 2,
     chairPosition: [1.9, 0, 1.4],
     chairRotation: 0,
-    monitorPosition: [1.0, 0.80, 1.4],
-    monitorRotation: Math.PI / 2,
-    keyboardPosition: [0.6, 0.80, 1.4],
+    monitorPosition: [1.05, 0.78, 1.4],
+    keyboardPosition: [1.425, 0.78, 1.4],
   },
 ];
 
@@ -231,16 +233,17 @@ export default function SharedDesk({ agents }: SharedDeskProps) {
               rotation={seat.chairRotation}
             />
 
-            {/* Monitor on tabletop — direct world-space position */}
+            {/* Monitor + keyboard on tabletop — placed and oriented exactly as
+                the accepted seat-local layout (b3ee78f), flattened to world
+                space. Yaw = seat rotation so each device faces its agent. */}
             <Monitor
               position={seat.monitorPosition}
-              rotation={seat.monitorRotation}
+              rotation={seat.rotation}
               mode={agent.visualState.mode}
               screenColor={COLORS[seat.agentId]}
             />
 
-            {/* Keyboard on tabletop — direct world-space position */}
-            <Keyboard position={seat.keyboardPosition} rotation={0} />
+            <Keyboard position={seat.keyboardPosition} rotation={seat.rotation} />
 
             {/* Agent at its world-space home (navigation/waypoints).
                 baseYaw reproduces the seat orientation for the rest pose. */}
