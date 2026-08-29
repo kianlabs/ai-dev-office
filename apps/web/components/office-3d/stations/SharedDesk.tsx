@@ -25,9 +25,9 @@ interface SharedDeskProps {
  *   local -Z = INTO the table (devices sit here, on the tabletop)
  *   local +Z = OUT of the table (chair + agent stand here, on the floor)
  *
- * The AgentCharacter model faces local -Z by default and a chair given
- * rotation 0 (OfficeChair adds π internally) also faces local -Z, so both
- * face the table in this frame.
+ * The AgentCharacter model faces local -Z by default. The office-chair GLB
+ * faces local -X, so OfficeChair props a rotation of -π/2 to turn the chair
+ * toward local -Z (the table), matching the agent.
  *
  * Seat origins sit exactly on the table edge, so small outward offsets (+Z)
  * land outside the footprint while small inward offsets (-Z) land on the
@@ -190,9 +190,9 @@ export default function SharedDesk({ agents }: SharedDeskProps) {
             position={seat.position}
             rotation={[0, seatY, 0]}
           >
-            {/* Chair — rotation 0 (OfficeChair adds π internally) makes it
-                face local -Z, i.e. the table, matching the agent. */}
-            <OfficeChair position={seat.chairOffset} rotation={0} />
+            {/* Chair — the GLB's front points along local -X; a chair rotation of -π/2
+                turns that into local -Z, i.e. the table, matching the agent. */}
+            <OfficeChair position={seat.chairOffset} rotation={-Math.PI / 2} />
 
             {/* Agent standing clearly behind the chair, outside the table. */}
             <AgentDummy

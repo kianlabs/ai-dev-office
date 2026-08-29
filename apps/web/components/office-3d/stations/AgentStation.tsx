@@ -51,7 +51,7 @@ export default function AgentStation({
         {/* workstation furniture */}
         <Desk position={[0, 0, 0]} />
         {/* chair on the outer side of the desk (toward +Z of the facing) */}
-        <OfficeChair position={[0, 0, 1.15]} rotation={Math.PI} />
+        <OfficeChair position={[0, 0, 1.15]} rotation={-Math.PI / 2} />
         <Monitor
           position={[0.18, 0.74, -0.28]}
           screenGlow={visual.screen}

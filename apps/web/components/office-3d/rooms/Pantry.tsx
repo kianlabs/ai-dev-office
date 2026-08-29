@@ -24,10 +24,10 @@ export default function Pantry({
         <meshStandardMaterial color="#1a1e26" roughness={0.65} />
       </mesh>
 
-      <OfficeChair position={[0, 0, 1.05]} rotation={Math.PI} />
-      <OfficeChair position={[1.05, 0, 0]} rotation={-Math.PI / 2} />
-      <OfficeChair position={[-1.05, 0, 0]} rotation={Math.PI / 2} />
-      <OfficeChair position={[0, 0, -1.05]} rotation={0} />
+      <OfficeChair position={[0, 0, 1.05]} rotation={-Math.PI / 2} />
+      <OfficeChair position={[1.05, 0, 0]} rotation={0} />
+      <OfficeChair position={[-1.05, 0, 0]} rotation={Math.PI} />
+      <OfficeChair position={[0, 0, -1.05]} rotation={Math.PI / 2} />
 
       {/* counter */}
       <mesh position={[-1.95, 0.45, -1.35]} castShadow receiveShadow>

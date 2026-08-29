@@ -84,27 +84,27 @@ export default function MeetingRoom({
 
       <OfficeChair
         position={[-1.55, 0, 0.1]}
-        rotation={Math.PI / 2}
+        rotation={Math.PI}
       />
       <OfficeChair
         position={[1.55, 0, 0.1]}
-        rotation={-Math.PI / 2}
+        rotation={0}
       />
       <OfficeChair
         position={[-0.65, 0, -1.05]}
-        rotation={0}
+        rotation={Math.PI / 2}
       />
       <OfficeChair
         position={[0.65, 0, -1.05]}
-        rotation={0}
+        rotation={Math.PI / 2}
       />
       <OfficeChair
         position={[-0.65, 0, 1.18]}
-        rotation={Math.PI}
+        rotation={-Math.PI / 2}
       />
       <OfficeChair
         position={[0.65, 0, 1.18]}
-        rotation={Math.PI}
+        rotation={-Math.PI / 2}
       />
 
       {/* whiteboard */}

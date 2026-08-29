@@ -13,7 +13,7 @@ export default function OfficeChair({
     <OfficeAsset
       src="/models/office/workstation/office-chair.glb"
       position={position}
-      rotation={[0, rotation + Math.PI, 0]}
+      rotation={[0, rotation, 0]}
       scale={0.66}
       bottomCenter
     />
