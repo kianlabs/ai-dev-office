@@ -2,7 +2,9 @@
 
 /**
  * Native Mixamo shared-desk agent — one per agent seat (default character
- * system).
+ * system). Without the movement demo the agent plays the seated clip cycle
+ * at its seat; with ?movementDemo=1 it patrols its demo route with the
+ * navigation engine, Walking while moving and Idling on arrival.
  *
  * Loads the agent's Mixamo character FBX and the six raw Mixamo
  * sitting/typing clips with FBXLoader, normalizes the clip track namespaces
@@ -30,9 +32,12 @@ import {
   MIXAMO_FADE_SECONDS,
   MIXAMO_SEQUENCE,
   detectMixamoPrefix,
+  makeClipInPlace,
   normalizeMixamoClip,
   type MixamoClipKey,
 } from "./mixamo";
+import { usePatrolNavigation } from "../navigation/usePatrolNavigation";
+import { SHARED_DESK_WORLD_OFFSET } from "../navigation/layout";
 
 type MixamoClips = Record<MixamoClipKey, THREE.AnimationClip>;
 type MixamoActions = Record<MixamoClipKey, THREE.AnimationAction>;
@@ -47,12 +52,10 @@ function phaseDuration(
   return phase.seconds ?? 0;
 }
 
-/** Starts `next`, crossfading `previous` out. hold-end clamps the final
- *  frame immediately so the standing baseline shows a natural stance.
- *  A fade needs a pose to fade FROM: on mixer creation (previous === null)
- *  and on the loop wrap (previous === next's action — the standing hold
- *  reuses sitToStand's final frame) a fade would blend from/to the bind
- *  pose and flash a T-pose, so those restarts go straight to full weight. */
+/** Starts `next`, crossfading `previous` out. A fade needs a pose to fade
+ *  FROM: on mixer creation (previous === null) and on the loop wrap
+ *  (previous === next's action) a fade would blend from/to the bind pose and
+ *  flash a T-pose, so those restarts go straight to full weight. */
 function enterPhase(
   actions: MixamoActions,
   previous: THREE.AnimationAction | null,
@@ -67,9 +70,6 @@ function enterPhase(
   } else {
     action.setLoop(THREE.LoopOnce, 1);
     action.clampWhenFinished = true;
-    if (next.mode === "hold-end") {
-      action.time = action.getClip().duration;
-    }
   }
 
   if (previous === null || previous === action) {
@@ -83,17 +83,28 @@ function enterPhase(
 
 interface MixamoAgentProps {
   agentId: keyof typeof MIXAMO_AGENTS;
-  /** Seat anchor (mixamoSeatAnchor) in SharedDesk local space. */
-  position: [number, number, number];
+  /** Desk-local rest anchor (agentRestAnchor) in SharedDesk local space. */
+  position: readonly [number, number, number];
   /** Seat-facing world yaw (the seat rotation in SharedDesk). */
   rotation?: number;
+  /** Demo patrol route (?movementDemo=1). While active the navigation
+   *  engine moves the agent and Idle/Walking replace the seated cycle. */
+  route?: readonly string[];
 }
 
 export default function MixamoAgent({
   agentId,
   position,
   rotation = 0,
+  route,
 }: MixamoAgentProps) {
+  const { homeRef, turnRef, walking } = usePatrolNavigation({
+    position,
+    baseYaw: rotation,
+    route,
+    frameOffset: SHARED_DESK_WORLD_OFFSET,
+  });
+  const demoActive = Boolean(route);
   const { modelUrl, scale } = MIXAMO_AGENTS[agentId];
 
   // Characters: optimized GLB (meshopt+webp, meters). Draco is explicitly
@@ -106,6 +117,8 @@ export default function MixamoAgent({
   const typingFbx = useFBX(MIXAMO_CLIP_URLS.typing);
   const typeToSitFbx = useFBX(MIXAMO_CLIP_URLS.typeToSit);
   const sitToStandFbx = useFBX(MIXAMO_CLIP_URLS.sitToStand);
+  const idleFbx = useFBX(MIXAMO_CLIP_URLS.idle);
+  const walkingFbx = useFBX(MIXAMO_CLIP_URLS.walking);
 
   const { model, offset, clips } = useMemo(() => {
     // Mixamo characters face +Z; the office convention (seat yaw + model)
@@ -183,10 +196,24 @@ export default function MixamoAgent({
         "sitToStand",
         hipsScale,
       ),
+      idle: normalizeMixamoClip(
+        idleFbx.animations[0].clone(),
+        prefix,
+        "idle",
+        hipsScale,
+      ),
+      walking: makeClipInPlace(
+        normalizeMixamoClip(
+          walkingFbx.animations[0].clone(),
+          prefix,
+          "walking",
+          hipsScale,
+        ),
+      ),
     } satisfies MixamoClips;
 
     return { model: characterGltf, offset, clips };
-  }, [characterGltf, standToSitFbx, seatedIdleFbx, sitToTypeFbx, typingFbx, typeToSitFbx, sitToStandFbx]);
+  }, [characterGltf, standToSitFbx, seatedIdleFbx, sitToTypeFbx, typingFbx, typeToSitFbx, sitToStandFbx, idleFbx, walkingFbx]);
 
   const mixerRef = useRef<THREE.AnimationMixer | null>(null);
   const actionsRef = useRef<MixamoActions | null>(null);
@@ -200,8 +227,8 @@ export default function MixamoAgent({
       actions[key] = mixer.clipAction(clips[key]);
     }
 
-    // Phase 0 is the standing baseline: clamp the sitToStand final frame
-    // without a fade (nothing is playing yet).
+    // Phase 0 is the standing Idle baseline (full weight — no pose to fade
+    // from yet).
     phaseRef.current = 0;
     elapsedRef.current = 0;
     enterPhase(actions, null, MIXAMO_SEQUENCE[0]);
@@ -217,12 +244,51 @@ export default function MixamoAgent({
     };
   }, [model, clips]);
 
+  // Movement demo: the navigation engine owns locomotion — the seated
+  // sequencer is suspended and Idle/Walking follow the patrol state.
+  const demoStartedRef = useRef(false);
+  useEffect(() => {
+    const mixer = mixerRef.current;
+    const actions = actionsRef.current;
+    if (!mixer || !actions) return;
+
+    if (!demoActive) {
+      demoStartedRef.current = false;
+      return;
+    }
+
+    const target = walking ? actions.walking : actions.idle;
+    if (!demoStartedRef.current) {
+      // First demo frame: cut the seated cycle and start from full weight.
+      mixer.stopAllAction();
+      target.reset();
+      target.setEffectiveWeight(1);
+      target.setLoop(THREE.LoopRepeat, Infinity);
+      target.clampWhenFinished = false;
+      target.play();
+      demoStartedRef.current = true;
+      return;
+    }
+
+    for (const action of Object.values(actions)) {
+      if (action !== target && action.isRunning()) action.fadeOut(0.35);
+    }
+    target.reset();
+    target.setLoop(THREE.LoopRepeat, Infinity);
+    target.clampWhenFinished = false;
+    target.fadeIn(0.35).play();
+  }, [demoActive, walking]);
+
   useFrame((_, delta) => {
     const mixer = mixerRef.current;
     const actions = actionsRef.current;
     if (!mixer || !actions) return;
 
     mixer.update(delta);
+
+    // While the demo patrols, the sequencer must not fight Idle/Walking.
+    if (demoActive) return;
+
     elapsedRef.current += delta;
 
     const phase = MIXAMO_SEQUENCE[phaseRef.current];
@@ -235,9 +301,11 @@ export default function MixamoAgent({
   });
 
   return (
-    <group position={position} rotation={[0, rotation, 0]}>
-      <group scale={scale}>
-        <primitive object={model} position={offset} />
+    <group ref={homeRef} position={position}>
+      <group ref={turnRef}>
+        <group scale={scale}>
+          <primitive object={model} position={offset} />
+        </group>
       </group>
     </group>
   );

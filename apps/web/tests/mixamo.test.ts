@@ -6,11 +6,20 @@ import {
   MIXAMO_CLIP_URLS,
   MIXAMO_SEQUENCE,
   detectMixamoPrefix,
-  mixamoSeatAnchor,
+  makeClipInPlace,
   mixamoPrefixOf,
   normalizeMixamoClip,
 } from "../components/office-3d/agents/mixamo";
 import { AGENT_ORDER } from "../lib/types";
+import {
+  AGENT_HOME,
+  type AgentId,
+} from "../components/office-3d/navigation/waypoints";
+import {
+  SHARED_DESK_WORLD_OFFSET,
+  agentHomeWorld,
+  agentRestAnchor,
+} from "../components/office-3d/navigation/layout";
 
 describe("mixamoPrefixOf", () => {
   it("detects bare and numbered namespaces", () => {
@@ -168,45 +177,95 @@ describe("MIXAMO_AGENTS", () => {
   });
 });
 
-describe("mixamoSeatAnchor", () => {
-  function expectAnchor(
-    seat: { chairPosition: [number, number, number]; rotation: number },
-    expected: [number, number, number],
-  ) {
-    const anchor = mixamoSeatAnchor(seat);
-    anchor.forEach((value, i) => expect(value).toBeCloseTo(expected[i], 9));
+describe("layout agent anchors", () => {
+  function expectAnchor(actual: readonly number[], expected: readonly number[]) {
+    actual.forEach((value, i) => expect(value).toBeCloseTo(expected[i], 9));
   }
 
-  it("pulls the anchor 0.15 u away from the desk along the seat facing", () => {
+  it("pulls the rest anchor 0.15 u away from the desk along the seat facing", () => {
     // scout seat: chair (-1.9, -1.4), rotation -π/2 → faces +X
-    expectAnchor(
-      { chairPosition: [-1.9, 0, -1.4], rotation: -Math.PI / 2 },
-      [-2.05, 0, -1.4],
-    );
+    expectAnchor(agentRestAnchor("scout"), [-2.05, 0, -1.4]);
 
     // atlas seat: chair (0, -4.0), rotation π → faces +Z
-    expectAnchor({ chairPosition: [0, 0, -4], rotation: Math.PI }, [0, 0, -4.15]);
+    expectAnchor(agentRestAnchor("atlas"), [0, 0, -4.15]);
 
     // forge seat: chair (1.9, -1.4), rotation π/2 → faces -X
-    expectAnchor(
-      { chairPosition: [1.9, 0, -1.4], rotation: Math.PI / 2 },
-      [2.05, 0, -1.4],
+    expectAnchor(agentRestAnchor("forge"), [2.05, 0, -1.4]);
+  });
+
+  it("places the nav home exactly at the rendered anchor (world frame)", () => {
+    // The demo must start/end exactly where the character renders: the world
+    // home is the desk-local anchor shifted by the shared-desk frame offset,
+    // and the resolved home equals it in the desk frame (zero drift).
+    for (const agentId of Object.keys(AGENT_HOME) as AgentId[]) {
+      const local = agentRestAnchor(agentId);
+      const world = agentHomeWorld(agentId);
+      const home = AGENT_HOME[agentId];
+      // world home == AGENT_HOME
+      expectAnchor(world, home);
+
+      const offset = SHARED_DESK_WORLD_OFFSET;
+      // world home - offset == local anchor  →  nav arrives at the visual anchor
+      expectAnchor(
+        [world[0] - offset[0], world[1] - offset[1], world[2] - offset[2]],
+        local,
+      );
+    }
+  });
+});
+
+describe("makeClipInPlace", () => {
+  function hipsClip(values: number[]): THREE.AnimationClip {
+    const hips = new THREE.VectorKeyframeTrack(
+      "mixamorigHips.position",
+      [0, 1, 2],
+      values,
     );
+    return new THREE.AnimationClip("walking", 2, [hips]);
+  }
+
+  it("freezes the Hips X/Z root motion at their first-frame values", () => {
+    const clip = hipsClip([0, 100, 10, 10, 101, 12, 90, 102, 15]);
+    makeClipInPlace(clip);
+    expect([...clip.tracks[0].values]).toEqual([0, 100, 10, 0, 101, 10, 0, 102, 10]);
+  });
+
+  it("leaves the Hips Y (vertical bob) fully animated", () => {
+    const clip = hipsClip([0, 100, 10, 10, 101, 12]);
+    makeClipInPlace(clip);
+    expect(clip.tracks[0].values[1]).toBe(100);
+    expect(clip.tracks[0].values[4]).toBe(101);
+  });
+
+  it("returns the clip untouched when no Hips position track exists", () => {
+    const clip = new THREE.AnimationClip("walking", 1, [
+      new THREE.VectorKeyframeTrack(
+        "mixamorigSpine.position",
+        [0],
+        [0, 0, 0],
+      ),
+    ]);
+    expect(makeClipInPlace(clip)).toBe(clip);
   });
 });
 
 describe("MIXAMO_SEQUENCE", () => {
-  it("covers every Mixamo clip with a URL", () => {
+  it("covers every sequencer clip with a URL (except Walking, which is demo-driven)", () => {
+    // Walking is not sequencer-driven — the navigation demo plays it while an
+    // agent moves, so it has a URL but no place in the seated cycle.
     const clipsInSequence = new Set(MIXAMO_SEQUENCE.map((p) => p.clip));
     expect([...clipsInSequence].sort()).toEqual(
-      Object.keys(MIXAMO_CLIP_URLS).sort(),
+      Object.keys(MIXAMO_CLIP_URLS)
+        .filter((key) => key !== "walking")
+        .sort(),
     );
   });
 
-  it("holds a standing baseline, then sits, types and stands back up", () => {
+  it("holds a standing Idle baseline, then sits, types and stands back up", () => {
     expect(MIXAMO_SEQUENCE[0]).toMatchObject({
-      clip: "sitToStand",
-      mode: "hold-end",
+      clip: "idle",
+      mode: "loop",
+      seconds: 2.5,
     });
     expect(MIXAMO_SEQUENCE.at(-1)).toMatchObject({
       clip: "sitToStand",

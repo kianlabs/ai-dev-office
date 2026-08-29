@@ -1,27 +1,28 @@
 /**
  * Named waypoints in world space (Office 3D frame).
  *
- * Mandate: agent "home" positions here are the single source of truth for
- * where the characters stand. SharedDesk places the AgentDummy at exactly
- * these coordinates, and the demo routes both start and return to them, so
- * the characters never drift from their rendered seat position.
+ * Agent "home" waypoints are derived from the shared-desk layout (layout.ts)
+ * so the navigation demo starts and returns to exactly where each character
+ * renders — never drifting from the visual home.
  *
- * Homes were derived from the SharedDesk seat transforms (seat origin +
- * rotation applied to the agent offset) and the MainOffice offset group
- * `<group position={[0, 0, 0.2]}>` that hosts the desk. Do not change them
- * casually, and never change SharedDesk without updating this file.
+ * All non-home waypoints (meeting, server, pantry, lounge, center, …) are
+ * authored here in the office frame.
  */
+
+import { agentHomeWorld } from "./layout";
 
 export type AgentId = "atlas" | "scout" | "forge" | "qa" | "pulse";
 
 export type Vec3 = readonly [number, number, number];
 
+/** Agent rest homes are derived from the shared-desk layout so they always
+ *  coincide with the rendered character anchors (see layout.ts). */
 export const AGENT_HOME: Record<AgentId, Vec3> = {
-  atlas: [0, 0, -4.1],
-  scout: [-2.325, 0, -1.2],
-  forge: [2.325, 0, -1.2],
-  qa: [-2.325, 0, 1.6],
-  pulse: [2.325, 0, 1.6],
+  atlas: agentHomeWorld("atlas"),
+  scout: agentHomeWorld("scout"),
+  forge: agentHomeWorld("forge"),
+  qa: agentHomeWorld("qa"),
+  pulse: agentHomeWorld("pulse"),
 };
 
 /** Rest-facing yaw (world Y-rotation) that reproduces the current seated

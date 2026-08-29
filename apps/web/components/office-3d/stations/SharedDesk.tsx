@@ -3,10 +3,11 @@
 import { Suspense } from "react";
 
 import MixamoAgent from "../agents/MixamoAgent";
-import { mixamoSeatAnchor } from "../agents/mixamo";
 import OfficeChair from "../furniture/OfficeChair";
 import Keyboard from "../furniture/Keyboard";
 import Monitor from "../furniture/Monitor";
+import { agentRestAnchor } from "../navigation/layout";
+import { demoRouteFor } from "../navigation/routes";
 import type { AgentVisualState } from "../semantic";
 import type { AgentId } from "../navigation/waypoints";
 
@@ -244,15 +245,18 @@ export default function SharedDesk({ agents }: SharedDeskProps) {
 
             <Keyboard position={seat.keyboardPosition} rotation={seat.rotation} />
 
-            {/* Mixamo agent at its seat anchor (accepted chair pulled 0.15 u
+            {/* Mixamo agent at its rest anchor (accepted chair pulled 0.15 u
                 away from the desk) so the clips' baked sit/stand root motion
-                plays around the accepted chair. The Quaternius path
-                (AgentDummy) remains in the tree as a dormant fallback. */}
+                plays around the accepted chair. The anchor derives from the
+                same layout config as the nav home, so a ?movementDemo=1 patrol
+                starts/ends exactly here. The Quaternius path (AgentDummy)
+                remains in the tree as a dormant fallback. */}
             <Suspense fallback={null}>
               <MixamoAgent
                 agentId={agentId}
-                position={mixamoSeatAnchor(seat)}
+                position={agentRestAnchor(agentId)}
                 rotation={seat.rotation}
+                route={demoRouteFor(agentId)}
               />
             </Suspense>
           </group>

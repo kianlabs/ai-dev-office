@@ -25,6 +25,8 @@ import type { AgentId } from "../navigation/waypoints";
 
 /** Animation-only Mixamo FBXs, one clip each, all named "mixamo.com" inside. */
 export const MIXAMO_CLIP_URLS = {
+  idle: "/models/agents/mixamo/idle.fbx",
+  walking: "/models/agents/mixamo/walking.fbx",
   standToSit: "/models/agents/mixamo/stand-to-sit.fbx",
   seatedIdle: "/models/agents/mixamo/seated-idle.fbx",
   sitToType: "/models/agents/mixamo/sit-to-type.fbx",
@@ -60,39 +62,27 @@ export const MIXAMO_AGENTS: Record<
 };
 
 /**
- * Seat anchor for a Mixamo agent: the accepted chair position pulled 0.15 u
- * AWAY from the desk along the seat facing, so the clips' baked root motion
- * (sit-back ~0.45 u, stand-up ~0.49 u forward) plays around the accepted
- * chair. Facing direction follows the seat yaw with the office convention
- * (character faces local -Z).
+ * Agent rest anchors are owned by the navigation layout config (layout.ts):
+ * each desk agent's rest position and its navigation home derive from the same
+ * seat geometry, so a ?movementDemo=1 patrol never drifts from the rendered
+ * character. `agentRestAnchor` (SharedDesk local) and `agentHomeWorld` (office
+ * frame) live there and are reused by SharedDesk and the nav engine.
  */
-export function mixamoSeatAnchor(
-  seat: { chairPosition: readonly [number, number, number]; rotation: number },
-): [number, number, number] {
-  const facingX = -Math.sin(seat.rotation);
-  const facingZ = -Math.cos(seat.rotation);
-  return [
-    seat.chairPosition[0] - facingX * 0.15,
-    0,
-    seat.chairPosition[2] - facingZ * 0.15,
-  ];
-}
 
 export interface MixamoPhase {
   clip: MixamoClipKey;
   /** "once" = LoopOnce + clampWhenFinished, advance after one clip pass.
-   *  "loop" = LoopRepeat, advance after `seconds`.
-   *  "hold-end" = clamp the clip's final frame immediately and wait
-   *  `seconds` (used for the standing baseline, which has no idle clip). */
-  mode: "once" | "loop" | "hold-end";
-  /** Hold duration for loop/hold-end phases; ignored for "once". */
+   *  "loop" = LoopRepeat, advance after `seconds`. */
+  mode: "once" | "loop";
+  /** Hold duration for loop phases; ignored for "once". */
   seconds?: number;
 }
 
-/** standing → Stand To Sit → Seated Idle → Sit To Type → Typing → Type To Sit
- *  → Seated Idle → Sit To Stand → (standing) — loops. */
+/** standing (Idle) → Stand To Sit → Seated Idle → Sit To Type → Typing →
+ *  Type To Sit → Seated Idle → Sit To Stand → (Idle) — loops. Walking is not
+ *  sequencer-driven; the navigation demo plays it while an agent moves. */
 export const MIXAMO_SEQUENCE: readonly MixamoPhase[] = [
-  { clip: "sitToStand", mode: "hold-end", seconds: 2.5 },
+  { clip: "idle", mode: "loop", seconds: 2.5 },
   { clip: "standToSit", mode: "once" },
   { clip: "seatedIdle", mode: "loop", seconds: 8 },
   { clip: "sitToType", mode: "once" },
@@ -126,6 +116,26 @@ export function detectMixamoPrefix(root: THREE.Object3D): string {
     if (candidate) prefix = candidate;
   });
   return prefix;
+}
+
+/**
+ * Flattens a clip's Hips horizontal root motion so it plays in place: X/Z
+ * are frozen at their FIRST-frame values (preserving any body offset), Y is
+ * left fully animated (walk bob, breathing). Used for Walking — its baked
+ * ~1.77 m forward locomotion would fight the navigation engine. Idle clips
+ * keep their sub-cm sway and are not passed through this.
+ */
+export function makeClipInPlace(clip: THREE.AnimationClip): THREE.AnimationClip {
+  const hips = clip.tracks.find((track) => /Hips\.position$/.test(track.name));
+  if (!hips) return clip;
+
+  const values = hips.values;
+  const next = values.map((value, index) => {
+    const component = index % 3;
+    return component === 1 ? value : values[component];
+  });
+  hips.values = next;
+  return clip;
 }
 
 /**
