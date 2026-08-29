@@ -64,8 +64,8 @@ export default function AgentStation({
         {/* agent placeholder sits in the chair area */}
         <AgentDummy
           position={[0, 0, 1.15]}
-          color={signal}
           mode={visualState.mode}
+          modelPath="/models/agents/characters/men_suit.gltf"
         />
 
         {/* status indicator: a floating low-poly beacon above the monitor */}

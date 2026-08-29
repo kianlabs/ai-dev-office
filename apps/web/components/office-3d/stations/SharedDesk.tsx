@@ -4,7 +4,6 @@ import AgentDummy from "../furniture/AgentDummy";
 import OfficeChair from "../furniture/OfficeChair";
 import Keyboard from "../furniture/Keyboard";
 import Monitor from "../furniture/Monitor";
-import type { HairStyleKey } from "../agents/AgentCharacter";
 import type { AgentVisualState } from "../semantic";
 
 interface SharedDeskAgent {
@@ -26,9 +25,10 @@ interface SharedDeskProps {
  *   local -Z = INTO the table (devices sit here, on the tabletop)
  *   local +Z = OUT of the table (chair + agent stand here, on the floor)
  *
- * The AgentCharacter model faces local -Z by default. The office-chair GLB
- * faces local -X, so OfficeChair props a rotation of -π/2 to turn the chair
- * toward local -Z (the table), matching the agent.
+ * The AgentCharacter model faces local -Z by default (the characters are
+ * flipped internally to match). The office-chair GLB faces local -X, so
+ * OfficeChair props a rotation of -π/2 to turn the chair toward local -Z
+ * (the table), matching the agent.
  *
  * Seat origins sit exactly on the table edge, so small outward offsets (+Z)
  * land outside the footprint while small inward offsets (-Z) land on the
@@ -39,8 +39,7 @@ interface SeatConfig {
   agentId: SharedDeskAgent["agentId"];
   position: [number, number, number]; // seat origin in desk-local coords
   rotation: number; // 0 / π/2 / -π/2 / π  (about Y)
-  variant: "male" | "female";
-  hairstyle: HairStyleKey;
+  modelPath: string; // full character GLTF (see public/models/agents/characters)
   agentOffset: [number, number, number]; // local offset from seat origin
   chairOffset: [number, number, number]; // local offset from seat origin
   monitorOffset: [number, number, number]; // local offset from seat origin
@@ -69,8 +68,7 @@ const SEATS: SeatConfig[] = [
     agentId: "atlas",
     position: [0, 0, -3.4],
     rotation: Math.PI,
-    variant: "male",
-    hairstyle: "simple-parted",
+    modelPath: "/models/agents/characters/men_suit.gltf",
     agentOffset: [0, 0, 0.9],
     chairOffset: [0, 0, 0.35],
     monitorOffset: [0, 0.78, -0.5],
@@ -85,8 +83,7 @@ const SEATS: SeatConfig[] = [
     agentId: "scout",
     position: [-1.575, 0, -1.4],
     rotation: -Math.PI / 2,
-    variant: "female",
-    hairstyle: "long",
+    modelPath: "/models/agents/characters/women_casual.gltf",
     agentOffset: [0, 0, 0.75],
     chairOffset: [0, 0, 0.35],
     monitorOffset: [0, 0.78, -0.525],
@@ -101,8 +98,7 @@ const SEATS: SeatConfig[] = [
     agentId: "qa",
     position: [-1.575, 0, 1.4],
     rotation: -Math.PI / 2,
-    variant: "female",
-    hairstyle: "buns",
+    modelPath: "/models/agents/characters/women_formal.gltf",
     agentOffset: [0, 0, 0.75],
     chairOffset: [0, 0, 0.35],
     monitorOffset: [0, 0.78, -0.525],
@@ -117,8 +113,7 @@ const SEATS: SeatConfig[] = [
     agentId: "forge",
     position: [1.575, 0, -1.4],
     rotation: Math.PI / 2,
-    variant: "male",
-    hairstyle: "buzzed",
+    modelPath: "/models/agents/characters/men_casual_hoodie.gltf",
     agentOffset: [0, 0, 0.75],
     chairOffset: [0, 0, 0.35],
     monitorOffset: [0, 0.78, -0.525],
@@ -133,8 +128,7 @@ const SEATS: SeatConfig[] = [
     agentId: "pulse",
     position: [1.575, 0, 1.4],
     rotation: Math.PI / 2,
-    variant: "male",
-    hairstyle: "buzzed",
+    modelPath: "/models/agents/characters/men_casual_2.gltf",
     agentOffset: [0, 0, 0.75],
     chairOffset: [0, 0, 0.35],
     monitorOffset: [0, 0.78, -0.525],
@@ -204,10 +198,8 @@ export default function SharedDesk({ agents }: SharedDeskProps) {
             {/* Agent standing clearly behind the chair, outside the table. */}
             <AgentDummy
               position={seat.agentOffset}
-              color={COLORS[seat.agentId]}
               mode={agent.visualState.mode}
-              variant={seat.variant}
-              hairstyle={seat.hairstyle}
+              modelPath={seat.modelPath}
             />
 
             {/* Monitor + keyboard sit on the tabletop (Y ≈ 0.78), facing

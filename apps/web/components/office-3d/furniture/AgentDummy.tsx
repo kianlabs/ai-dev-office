@@ -5,27 +5,20 @@ import { useFrame } from "@react-three/fiber";
 import type { Group } from "three";
 
 import AgentCharacter from "../agents/AgentCharacter";
-import type { HairStyleKey } from "../agents/AgentCharacter";
 import type { AgentVisualMode } from "../semantic";
 
 interface AgentDummyProps {
   position: [number, number, number];
-  color?: string;
   mode?: AgentVisualMode;
-  variant?: "male" | "female";
-  hairstyle?: HairStyleKey;
+  modelPath: string;
 }
 
 export default function AgentDummy({
   position,
-  color,
   mode = "idle",
-  variant = "male",
-  hairstyle = "buzzed",
+  modelPath,
 }: AgentDummyProps) {
   const actorRef = useRef<Group>(null);
-
-  // The identity color tints the hair only (skin/eyes/body stay untouched).
 
   useFrame(({ clock }) => {
     const actor = actorRef.current;
@@ -100,10 +93,8 @@ export default function AgentDummy({
     <group position={position}>
       <group ref={actorRef}>
         <AgentCharacter
-          variant={variant}
-          scale={0.56}
-          hairstyle={hairstyle}
-          hairColor={color}
+          modelPath={modelPath}
+          scale={0.9}
         />
       </group>
     </group>

@@ -5,140 +5,106 @@ import { useMemo } from "react";
 import * as THREE from "three";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 
-type AgentCharacterVariant = "male" | "female";
-
-export type HairStyleKey =
-  | "simple-parted"
-  | "long"
-  | "buzzed"
-  | "buns";
-
 interface AgentCharacterProps {
-  variant?: AgentCharacterVariant;
+  modelPath: string;
   position?: [number, number, number];
   rotation?: number;
   scale?: number;
-  /** Hairstyle mesh, rigged to the matching-gender skeleton. */
-  hairstyle?: HairStyleKey;
-  /** Tints the hair material by this color (multiply). Skin, eyes and body
-   *  materials are left untouched. */
-  hairColor?: string;
+  /** World-space pivot override. When omitted the model is auto-centered on
+   *  X/Z and planted on the floor (feet at Y=0). */
+  offset?: [number, number, number];
 }
 
-const MODELS = {
-  male: "/models/agents/base/Superhero_Male_FullBody.gltf",
-  female: "/models/agents/base/Superhero_Female_FullBody.gltf",
-} as const;
+const IDLE_CLIP_NAME = "Idle";
 
-const HAIRSTYLES: Record<
-  HairStyleKey,
-  { path: string; mesh: string }
-> = {
-  "simple-parted": {
-    path: "/models/agents/hair/Hair_SimpleParted.gltf",
-    mesh: "Hair_SimpleParted",
-  },
-  long: {
-    path: "/models/agents/hair/Hair_Long.gltf",
-    mesh: "Hair_Long",
-  },
-  buzzed: {
-    path: "/models/agents/hair/Hair_Buzzed.gltf",
-    mesh: "Hair_Buzzed",
-  },
-  buns: {
-    path: "/models/agents/hair/Hair_Buns.gltf",
-    mesh: "Hair_Buns",
-  },
-};
+const AGENT_MODELS = [
+  "/models/agents/characters/men_suit.gltf",
+  "/models/agents/characters/men_casual_hoodie.gltf",
+  "/models/agents/characters/men_casual_2.gltf",
+  "/models/agents/characters/women_casual.gltf",
+  "/models/agents/characters/women_formal.gltf",
+] as const;
 
-const DEFAULT_HAIRSTYLE: HairStyleKey = "buzzed";
-
-function findSkinnedMesh(object: THREE.Object3D): THREE.SkinnedMesh | null {
-  if ((object as THREE.SkinnedMesh).isSkinnedMesh) {
-    return object as THREE.SkinnedMesh;
+/** Removes weapon/prop meshes (e.g. the Suit's Pistol) that have no place in
+ *  the office. Mesh names come from the kit: Pistol / Gun / Sword / etc. */
+function stripProps(scene: THREE.Object3D) {
+  const toRemove: THREE.Object3D[] = [];
+  scene.traverse((object) => {
+    const name = object.name ?? "";
+    if (/^(Pistol|Gun|Weapon|Sword|Shield|Prop)/i.test(name)) {
+      toRemove.push(object);
+    }
+  });
+  for (const object of toRemove) {
+    object.parent?.remove(object);
   }
-  for (const child of object.children) {
-    const found = findSkinnedMesh(child);
-    if (found) return found;
-  }
-  return null;
 }
 
-// Tints ONLY the hair ("MI_Hair_*") materials of a cloned scene. The models
-// have no separate outfit material (skin and outfit share one "MI_Superhero_*"
-// body material), so that material is preserved as-is. Materials are cloned
-// per instance so the shared useGLTF cache is never mutated.
-function tintHair(scene: THREE.Object3D, color?: string) {
-  if (!color) return;
+/** Bakes the character's own "Idle" mo-cap pose into the clone's skeleton so
+ *  it renders standing naturally (arms relaxed) instead of the T/A-pose bind
+ *  pose. The clip never animates Root/Hips, so the feet stay planted on the
+ *  floor and there is no positional drift. */
+function bakeIdlePose(scene: THREE.Object3D, clip?: THREE.AnimationClip) {
+  if (!clip) return;
 
-  const isColored = (
-    material: THREE.Material,
-  ): material is THREE.MeshStandardMaterial =>
-    (material as THREE.MeshStandardMaterial).color !== undefined;
+  const bones = new Map<string, THREE.Bone>();
+  scene.traverse((object) => {
+    if ((object as THREE.Bone).isBone) {
+      bones.set(object.name, object as THREE.Bone);
+    }
+  });
+
+  for (const track of clip.tracks) {
+    const sep = track.name.lastIndexOf(".");
+    if (sep < 1) continue;
+    const boneName = track.name.slice(0, sep);
+    const prop = track.name.slice(sep + 1);
+    const bone = bones.get(boneName);
+    if (!bone) continue;
+
+    const size = track.getValueSize();
+    const value = track.values.slice(0, size);
+    if (prop === "quaternion" && value.length === 4) {
+      bone.quaternion.fromArray(value);
+    } else if (prop === "translation" && value.length === 3) {
+      bone.position.fromArray(value);
+    } else if (prop === "scale" && value.length === 3) {
+      bone.scale.fromArray(value);
+    }
+  }
 
   scene.traverse((object) => {
-    if (!(object as THREE.Mesh).isMesh) return;
-
-    const mesh = object as THREE.Mesh;
-    const materials = Array.isArray(mesh.material)
-      ? mesh.material
-      : [mesh.material];
-
-    const next = materials.map((material) => {
-      if (!material.name.includes("Hair")) return material;
-
-      const tinted = material.clone();
-      if (isColored(tinted)) {
-        tinted.color = tinted.color.clone().multiply(new THREE.Color(color));
-      }
-      return tinted;
-    });
-
-    if (Array.isArray(mesh.material)) {
-      mesh.material = next;
-    } else {
-      mesh.material = next[0];
+    if ((object as THREE.SkinnedMesh).isSkinnedMesh) {
+      (object as THREE.SkinnedMesh).skeleton.update();
     }
   });
 }
 
 export default function AgentCharacter({
-  variant = "male",
+  modelPath,
   position = [0, 0, 0],
   rotation = 0,
   scale = 1,
-  hairstyle = DEFAULT_HAIRSTYLE,
-  hairColor,
+  offset,
 }: AgentCharacterProps) {
-  const gltf = useGLTF(MODELS[variant]);
-  const hairGltf = useGLTF(HAIRSTYLES[hairstyle].path);
+  const gltf = useGLTF(modelPath);
 
   const scene = useMemo(() => {
     const cloned = cloneSkeleton(gltf.scene);
 
-    // Attach the rigged hairstyle mesh onto the character's own skeleton.
-    // Both share the exact same bone hierarchy and rest pose for a given
-    // gender, so rebinding the hair mesh to the character's skeleton places
-    // it on the head and makes it follow any head/skeleton movement.
-    const bodyMesh = findSkinnedMesh(cloned);
-    const hairMesh = bodyMesh
-      ? (cloneSkeleton(hairGltf.scene).getObjectByName(
-          HAIRSTYLES[hairstyle].mesh,
-        ) as THREE.SkinnedMesh | null)
-      : null;
+    stripProps(cloned);
 
-    if (bodyMesh && hairMesh) {
-      hairMesh.skeleton = bodyMesh.skeleton;
-      hairMesh.parent?.remove(hairMesh);
-      cloned.add(hairMesh);
-    }
+    // The kit's characters face +Z (toes + nose point toward +Z). The seat
+    // frame in SharedDesk expects the model to face local -Z (into the
+    // table), so flip the whole model to match that convention.
+    cloned.rotation.y = Math.PI;
 
-    tintHair(cloned, hairColor);
+    bakeIdlePose(cloned, gltf.animations?.find((a) => a.name === IDLE_CLIP_NAME));
+
     return cloned;
-  }, [gltf.scene, hairGltf.scene, hairstyle, hairColor]);
+  }, [gltf]);
 
-  const offset = useMemo<[number, number, number]>(() => {
+  const autoOffset = useMemo<[number, number, number]>(() => {
     scene.updateMatrixWorld(true);
 
     const box = new THREE.Box3().setFromObject(scene);
@@ -163,15 +129,12 @@ export default function AgentCharacter({
     >
       <primitive
         object={scene}
-        position={offset}
+        position={offset ?? autoOffset}
       />
     </group>
   );
 }
 
-useGLTF.preload(MODELS.male);
-useGLTF.preload(MODELS.female);
-useGLTF.preload(HAIRSTYLES["simple-parted"].path);
-useGLTF.preload(HAIRSTYLES.long.path);
-useGLTF.preload(HAIRSTYLES.buzzed.path);
-useGLTF.preload(HAIRSTYLES.buns.path);
+for (const path of AGENT_MODELS) {
+  useGLTF.preload(path);
+}
