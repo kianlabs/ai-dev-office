@@ -103,7 +103,10 @@ export function useControlRoom(): UseControlRoom {
 
     const connect = () => {
       const proto = window.location.protocol === "https:" ? "wss" : "ws";
-      const host = process.env.NEXT_PUBLIC_WS_HOST ?? window.location.host;
+      const host =
+        process.env.NEXT_PUBLIC_WS_HOST ??
+        `${window.location.hostname}:8000`;
+
       const ws = new WebSocket(`${proto}://${host}/ws`);
       wsRef.current = ws;
       ws.onopen = () => setConnected(true);

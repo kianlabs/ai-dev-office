@@ -3,7 +3,6 @@
 import AgentDummy from "../furniture/AgentDummy";
 import OfficeChair from "../furniture/OfficeChair";
 import Keyboard from "../furniture/Keyboard";
-import Laptop from "../furniture/Laptop";
 import Monitor from "../furniture/Monitor";
 import type { AgentVisualState } from "../semantic";
 
@@ -27,7 +26,8 @@ interface SharedDeskProps {
  *   local +Z = OUT of the table (chair + agent stand here, on the floor)
  *
  * The AgentCharacter model faces local -Z by default and a chair given
- * rotation π also faces local -Z, so both face the table in this frame.
+ * rotation 0 (OfficeChair adds π internally) also faces local -Z, so both
+ * face the table in this frame.
  *
  * Seat origins sit exactly on the table edge, so small outward offsets (+Z)
  * land outside the footprint while small inward offsets (-Z) land on the
@@ -39,12 +39,10 @@ interface SeatConfig {
   position: [number, number, number]; // seat origin in desk-local coords
   rotation: number; // 0 / π/2 / -π/2 / π  (about Y)
   variant: "male" | "female";
-  device: "monitor" | "laptop";
   agentOffset: [number, number, number]; // local offset from seat origin
   chairOffset: [number, number, number]; // local offset from seat origin
-  monitorOffset: [number, number, number]; // local offset from seat origin ("" if laptop)
-  keyboardOffset: [number, number, number]; // local offset from seat origin ("" if laptop)
-  laptopOffset: [number, number, number]; // local offset from seat origin ("" if monitor)
+  monitorOffset: [number, number, number]; // local offset from seat origin
+  keyboardOffset: [number, number, number]; // local offset from seat origin
 }
 
 // Desk geometry (kept in sync with the mesh below):
@@ -70,28 +68,25 @@ const SEATS: SeatConfig[] = [
     position: [0, 0, -3.4],
     rotation: Math.PI,
     variant: "male",
-    device: "monitor",
     agentOffset: [0, 0, 0.7],
     chairOffset: [0, 0, 0.35],
     monitorOffset: [0, 0.78, -0.5],
     keyboardOffset: [0, 0.78, -0.25],
-    laptopOffset: [0, 0.78, -0.4],
   },
   // SCOUT — left side (rotation -π/2 maps local +Z to world -X), back row.
   //   chair offset +0.35    -> world (-1.93, 0, -1.4)   outside footprint
   //   agent offset +0.575   -> world (-2.15, 0, -1.4)   outside footprint
-  //   laptop -0.525         -> world (-1.05, 0.78, -1.4) on tabletop
+  //   keyboard -0.15        -> world (-1.425, 0.78, -1.4) on tabletop
+  //   monitor  -0.525       -> world (-1.05, 0.78, -1.4)  on tabletop
   {
     agentId: "scout",
     position: [-1.575, 0, -1.4],
     rotation: -Math.PI / 2,
     variant: "female",
-    device: "laptop",
     agentOffset: [0, 0, 0.575],
     chairOffset: [0, 0, 0.35],
     monitorOffset: [0, 0.78, -0.525],
     keyboardOffset: [0, 0.78, -0.15],
-    laptopOffset: [0, 0.78, -0.525],
   },
   // QA — left side (rotation -π/2 maps local +Z to world -X), front row.
   //   chair offset +0.35    -> world (-1.93, 0, 1.4)    outside footprint
@@ -103,28 +98,25 @@ const SEATS: SeatConfig[] = [
     position: [-1.575, 0, 1.4],
     rotation: -Math.PI / 2,
     variant: "female",
-    device: "monitor",
     agentOffset: [0, 0, 0.575],
     chairOffset: [0, 0, 0.35],
     monitorOffset: [0, 0.78, -0.525],
     keyboardOffset: [0, 0.78, -0.15],
-    laptopOffset: [0, 0.78, -0.525],
   },
   // FORGE — right side (rotation π/2 maps local +Z to world +X), back row.
   //   chair offset +0.35   -> world (1.93, 0, -1.4)   outside footprint
   //   agent offset +0.575  -> world (2.15, 0, -1.4)   outside footprint
-  //   laptop -0.525        -> world (1.05, 0.78, -1.4) on tabletop
+  //   keyboard -0.15       -> world (1.425, 0.78, -1.4) on tabletop
+  //   monitor  -0.525      -> world (1.05, 0.78, -1.4)  on tabletop
   {
     agentId: "forge",
     position: [1.575, 0, -1.4],
     rotation: Math.PI / 2,
     variant: "male",
-    device: "laptop",
     agentOffset: [0, 0, 0.575],
     chairOffset: [0, 0, 0.35],
     monitorOffset: [0, 0.78, -0.525],
     keyboardOffset: [0, 0.78, -0.15],
-    laptopOffset: [0, 0.78, -0.525],
   },
   // PULSE — right side (rotation π/2 maps local +Z to world +X), front row.
   //   chair offset +0.35   -> world (1.93, 0, 1.4)    outside footprint
@@ -136,12 +128,10 @@ const SEATS: SeatConfig[] = [
     position: [1.575, 0, 1.4],
     rotation: Math.PI / 2,
     variant: "male",
-    device: "monitor",
     agentOffset: [0, 0, 0.575],
     chairOffset: [0, 0, 0.35],
     monitorOffset: [0, 0.78, -0.525],
     keyboardOffset: [0, 0.78, -0.15],
-    laptopOffset: [0, 0.78, -0.525],
   },
 ];
 
@@ -212,24 +202,15 @@ export default function SharedDesk({ agents }: SharedDeskProps) {
               variant={seat.variant}
             />
 
-            {/* Devices sit on the tabletop (Y ≈ 0.78), inside the footprint. */}
-            {seat.device === "monitor" ? (
-              <>
-                <Monitor
-                  position={seat.monitorOffset}
-                  rotation={0}
-                  mode={agent.visualState.mode}
-                  screenColor={COLORS[seat.agentId]}
-                />
-                <Keyboard position={seat.keyboardOffset} rotation={0} />
-              </>
-            ) : (
-              <Laptop
-                position={seat.laptopOffset}
-                rotation={0}
-                scale={0.82}
-              />
-            )}
+            {/* Monitor + keyboard sit on the tabletop (Y ≈ 0.78), facing
+                their agent (local +Z). */}
+            <Monitor
+              position={seat.monitorOffset}
+              rotation={0}
+              mode={agent.visualState.mode}
+              screenColor={COLORS[seat.agentId]}
+            />
+            <Keyboard position={seat.keyboardOffset} rotation={0} />
           </group>
         );
       })}
