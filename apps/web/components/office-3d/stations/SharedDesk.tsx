@@ -4,6 +4,7 @@ import AgentDummy from "../furniture/AgentDummy";
 import OfficeChair from "../furniture/OfficeChair";
 import Keyboard from "../furniture/Keyboard";
 import Monitor from "../furniture/Monitor";
+import type { HairStyleKey } from "../agents/AgentCharacter";
 import type { AgentVisualState } from "../semantic";
 
 interface SharedDeskAgent {
@@ -39,6 +40,7 @@ interface SeatConfig {
   position: [number, number, number]; // seat origin in desk-local coords
   rotation: number; // 0 / π/2 / -π/2 / π  (about Y)
   variant: "male" | "female";
+  hairstyle: HairStyleKey;
   agentOffset: [number, number, number]; // local offset from seat origin
   chairOffset: [number, number, number]; // local offset from seat origin
   monitorOffset: [number, number, number]; // local offset from seat origin
@@ -68,6 +70,7 @@ const SEATS: SeatConfig[] = [
     position: [0, 0, -3.4],
     rotation: Math.PI,
     variant: "male",
+    hairstyle: "simple-parted",
     agentOffset: [0, 0, 0.9],
     chairOffset: [0, 0, 0.35],
     monitorOffset: [0, 0.78, -0.5],
@@ -83,6 +86,7 @@ const SEATS: SeatConfig[] = [
     position: [-1.575, 0, -1.4],
     rotation: -Math.PI / 2,
     variant: "female",
+    hairstyle: "long",
     agentOffset: [0, 0, 0.75],
     chairOffset: [0, 0, 0.35],
     monitorOffset: [0, 0.78, -0.525],
@@ -98,6 +102,7 @@ const SEATS: SeatConfig[] = [
     position: [-1.575, 0, 1.4],
     rotation: -Math.PI / 2,
     variant: "female",
+    hairstyle: "buns",
     agentOffset: [0, 0, 0.75],
     chairOffset: [0, 0, 0.35],
     monitorOffset: [0, 0.78, -0.525],
@@ -113,6 +118,7 @@ const SEATS: SeatConfig[] = [
     position: [1.575, 0, -1.4],
     rotation: Math.PI / 2,
     variant: "male",
+    hairstyle: "buzzed",
     agentOffset: [0, 0, 0.75],
     chairOffset: [0, 0, 0.35],
     monitorOffset: [0, 0.78, -0.525],
@@ -128,6 +134,7 @@ const SEATS: SeatConfig[] = [
     position: [1.575, 0, 1.4],
     rotation: Math.PI / 2,
     variant: "male",
+    hairstyle: "buzzed",
     agentOffset: [0, 0, 0.75],
     chairOffset: [0, 0, 0.35],
     monitorOffset: [0, 0.78, -0.525],
@@ -200,6 +207,7 @@ export default function SharedDesk({ agents }: SharedDeskProps) {
               color={COLORS[seat.agentId]}
               mode={agent.visualState.mode}
               variant={seat.variant}
+              hairstyle={seat.hairstyle}
             />
 
             {/* Monitor + keyboard sit on the tabletop (Y ≈ 0.78), facing

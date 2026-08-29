@@ -5,6 +5,7 @@ import { useFrame } from "@react-three/fiber";
 import type { Group } from "three";
 
 import AgentCharacter from "../agents/AgentCharacter";
+import type { HairStyleKey } from "../agents/AgentCharacter";
 import type { AgentVisualMode } from "../semantic";
 
 interface AgentDummyProps {
@@ -12,6 +13,7 @@ interface AgentDummyProps {
   color?: string;
   mode?: AgentVisualMode;
   variant?: "male" | "female";
+  hairstyle?: HairStyleKey;
 }
 
 export default function AgentDummy({
@@ -19,6 +21,7 @@ export default function AgentDummy({
   color,
   mode = "idle",
   variant = "male",
+  hairstyle = "buzzed",
 }: AgentDummyProps) {
   const actorRef = useRef<Group>(null);
 
@@ -99,6 +102,7 @@ export default function AgentDummy({
         <AgentCharacter
           variant={variant}
           scale={0.56}
+          hairstyle={hairstyle}
           hairColor={color}
         />
       </group>
