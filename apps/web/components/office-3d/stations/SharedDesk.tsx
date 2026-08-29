@@ -1,15 +1,14 @@
 "use client";
 
-import AgentDummy from "../furniture/AgentDummy";
+import { Suspense } from "react";
+
+import MixamoAgent from "../agents/MixamoAgent";
+import { mixamoSeatAnchor } from "../agents/mixamo";
 import OfficeChair from "../furniture/OfficeChair";
 import Keyboard from "../furniture/Keyboard";
 import Monitor from "../furniture/Monitor";
 import type { AgentVisualState } from "../semantic";
-import {
-  AGENT_HOME,
-  type AgentId,
-} from "../navigation/waypoints";
-import { demoRouteFor } from "../navigation/routes";
+import type { AgentId } from "../navigation/waypoints";
 
 interface SharedDeskAgent {
   agentId: string;
@@ -245,15 +244,17 @@ export default function SharedDesk({ agents }: SharedDeskProps) {
 
             <Keyboard position={seat.keyboardPosition} rotation={seat.rotation} />
 
-            {/* Agent at its world-space home (navigation/waypoints).
-                baseYaw reproduces the seat orientation for the rest pose. */}
-            <AgentDummy
-              position={AGENT_HOME[agentId]}
-              baseYaw={seat.rotation}
-              mode={agent.visualState.mode}
-              modelPath={seat.modelPath}
-              route={demoRouteFor(agentId)}
-            />
+            {/* Mixamo agent at its seat anchor (accepted chair pulled 0.15 u
+                away from the desk) so the clips' baked sit/stand root motion
+                plays around the accepted chair. The Quaternius path
+                (AgentDummy) remains in the tree as a dormant fallback. */}
+            <Suspense fallback={null}>
+              <MixamoAgent
+                agentId={agentId}
+                position={mixamoSeatAnchor(seat)}
+                rotation={seat.rotation}
+              />
+            </Suspense>
           </group>
         );
       })}
