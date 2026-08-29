@@ -60,7 +60,7 @@ const SEATS: SeatConfig[] = [
   // ATLAS — head of table. Rotation π flips local +Z to world -Z, so
   // outward offsets push past the -Z edge and devices land inside.
   //   chair offset +0.35  -> world (0, 0, -3.75)   outside footprint
-  //   agent offset +0.70  -> world (0, 0, -4.10)   outside footprint
+  //   agent offset +0.90  -> world (0, 0, -4.30)   outside footprint
   //   keyboard -0.25      -> world (0, 0.78, -3.15) on tabletop
   //   monitor  -0.50      -> world (0, 0.78, -2.90) on tabletop
   {
@@ -68,14 +68,14 @@ const SEATS: SeatConfig[] = [
     position: [0, 0, -3.4],
     rotation: Math.PI,
     variant: "male",
-    agentOffset: [0, 0, 0.7],
+    agentOffset: [0, 0, 0.9],
     chairOffset: [0, 0, 0.35],
     monitorOffset: [0, 0.78, -0.5],
     keyboardOffset: [0, 0.78, -0.25],
   },
   // SCOUT — left side (rotation -π/2 maps local +Z to world -X), back row.
   //   chair offset +0.35    -> world (-1.93, 0, -1.4)   outside footprint
-  //   agent offset +0.575   -> world (-2.15, 0, -1.4)   outside footprint
+  //   agent offset +0.75    -> world (-2.33, 0, -1.4)   outside footprint
   //   keyboard -0.15        -> world (-1.425, 0.78, -1.4) on tabletop
   //   monitor  -0.525       -> world (-1.05, 0.78, -1.4)  on tabletop
   {
@@ -83,14 +83,14 @@ const SEATS: SeatConfig[] = [
     position: [-1.575, 0, -1.4],
     rotation: -Math.PI / 2,
     variant: "female",
-    agentOffset: [0, 0, 0.575],
+    agentOffset: [0, 0, 0.75],
     chairOffset: [0, 0, 0.35],
     monitorOffset: [0, 0.78, -0.525],
     keyboardOffset: [0, 0.78, -0.15],
   },
   // QA — left side (rotation -π/2 maps local +Z to world -X), front row.
   //   chair offset +0.35    -> world (-1.93, 0, 1.4)    outside footprint
-  //   agent offset +0.575   -> world (-2.15, 0, 1.4)    outside footprint
+  //   agent offset +0.75    -> world (-2.33, 0, 1.4)    outside footprint
   //   keyboard -0.15        -> world (-1.425, 0.78, 1.4) on tabletop
   //   monitor  -0.525       -> world (-1.05, 0.78, 1.4)  on tabletop
   {
@@ -98,14 +98,14 @@ const SEATS: SeatConfig[] = [
     position: [-1.575, 0, 1.4],
     rotation: -Math.PI / 2,
     variant: "female",
-    agentOffset: [0, 0, 0.575],
+    agentOffset: [0, 0, 0.75],
     chairOffset: [0, 0, 0.35],
     monitorOffset: [0, 0.78, -0.525],
     keyboardOffset: [0, 0.78, -0.15],
   },
   // FORGE — right side (rotation π/2 maps local +Z to world +X), back row.
   //   chair offset +0.35   -> world (1.93, 0, -1.4)   outside footprint
-  //   agent offset +0.575  -> world (2.15, 0, -1.4)   outside footprint
+  //   agent offset +0.75   -> world (2.33, 0, -1.4)   outside footprint
   //   keyboard -0.15       -> world (1.425, 0.78, -1.4) on tabletop
   //   monitor  -0.525      -> world (1.05, 0.78, -1.4)  on tabletop
   {
@@ -113,14 +113,14 @@ const SEATS: SeatConfig[] = [
     position: [1.575, 0, -1.4],
     rotation: Math.PI / 2,
     variant: "male",
-    agentOffset: [0, 0, 0.575],
+    agentOffset: [0, 0, 0.75],
     chairOffset: [0, 0, 0.35],
     monitorOffset: [0, 0.78, -0.525],
     keyboardOffset: [0, 0.78, -0.15],
   },
   // PULSE — right side (rotation π/2 maps local +Z to world +X), front row.
   //   chair offset +0.35   -> world (1.93, 0, 1.4)    outside footprint
-  //   agent offset +0.575  -> world (2.15, 0, 1.4)    outside footprint
+  //   agent offset +0.75   -> world (2.33, 0, 1.4)    outside footprint
   //   keyboard -0.15       -> world (1.425, 0.78, 1.4) on tabletop
   //   monitor  -0.525      -> world (1.05, 0.78, 1.4)  on tabletop
   {
@@ -128,7 +128,7 @@ const SEATS: SeatConfig[] = [
     position: [1.575, 0, 1.4],
     rotation: Math.PI / 2,
     variant: "male",
-    agentOffset: [0, 0, 0.575],
+    agentOffset: [0, 0, 0.75],
     chairOffset: [0, 0, 0.35],
     monitorOffset: [0, 0.78, -0.525],
     keyboardOffset: [0, 0.78, -0.15],

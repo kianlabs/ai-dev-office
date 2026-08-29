@@ -16,10 +16,13 @@ interface AgentDummyProps {
 
 export default function AgentDummy({
   position,
+  color,
   mode = "idle",
   variant = "male",
 }: AgentDummyProps) {
   const actorRef = useRef<Group>(null);
+
+  // The identity color tints the hair only (skin/eyes/body stay untouched).
 
   useFrame(({ clock }) => {
     const actor = actorRef.current;
@@ -95,7 +98,8 @@ export default function AgentDummy({
       <group ref={actorRef}>
         <AgentCharacter
           variant={variant}
-          scale={0.46}
+          scale={0.56}
+          hairColor={color}
         />
       </group>
     </group>

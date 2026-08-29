@@ -12,6 +12,9 @@ interface AgentCharacterProps {
   position?: [number, number, number];
   rotation?: number;
   scale?: number;
+  /** Tints the hair material by this color (multiply). Skin, eyes and body
+   *  materials are left untouched. */
+  hairColor?: string;
 }
 
 const MODELS = {
@@ -19,18 +22,58 @@ const MODELS = {
   female: "/models/agents/base/Superhero_Female_FullBody.gltf",
 } as const;
 
+// Tints ONLY the hair ("MI_Hair_*") materials of a cloned scene. The models
+// have no separate outfit material (skin and outfit share one "MI_Superhero_*"
+// body material), so that material is preserved as-is. Materials are cloned
+// per instance so the shared useGLTF cache is never mutated.
+function tintHair(scene: THREE.Object3D, color?: string) {
+  if (!color) return;
+
+  const isColored = (
+    material: THREE.Material,
+  ): material is THREE.MeshStandardMaterial =>
+    (material as THREE.MeshStandardMaterial).color !== undefined;
+
+  scene.traverse((object) => {
+    if (!(object as THREE.Mesh).isMesh) return;
+
+    const mesh = object as THREE.Mesh;
+    const materials = Array.isArray(mesh.material)
+      ? mesh.material
+      : [mesh.material];
+
+    const next = materials.map((material) => {
+      if (!material.name.includes("Hair")) return material;
+
+      const tinted = material.clone();
+      if (isColored(tinted)) {
+        tinted.color = tinted.color.clone().multiply(new THREE.Color(color));
+      }
+      return tinted;
+    });
+
+    if (Array.isArray(mesh.material)) {
+      mesh.material = next;
+    } else {
+      mesh.material = next[0];
+    }
+  });
+}
+
 export default function AgentCharacter({
   variant = "male",
   position = [0, 0, 0],
   rotation = 0,
   scale = 1,
+  hairColor,
 }: AgentCharacterProps) {
   const gltf = useGLTF(MODELS[variant]);
 
-  const scene = useMemo(
-    () => cloneSkeleton(gltf.scene),
-    [gltf.scene],
-  );
+  const scene = useMemo(() => {
+    const cloned = cloneSkeleton(gltf.scene);
+    tintHair(cloned, hairColor);
+    return cloned;
+  }, [gltf.scene, hairColor]);
 
   const offset = useMemo<[number, number, number]>(() => {
     scene.updateMatrixWorld(true);
