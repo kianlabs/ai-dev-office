@@ -1,7 +1,7 @@
 "use client";
 
-import { useGLTF } from "@react-three/drei";
-import { useMemo } from "react";
+import { useGLTF, useAnimations } from "@react-three/drei";
+import { useEffect, useMemo } from "react";
 import * as THREE from "three";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 
@@ -16,6 +16,7 @@ interface AgentCharacterProps {
 }
 
 const IDLE_CLIP_NAME = "Idle";
+const IDLE_FADE_SECONDS = 0.4;
 
 const AGENT_MODELS = [
   "/models/agents/characters/men_suit.gltf",
@@ -40,46 +41,6 @@ function stripProps(scene: THREE.Object3D) {
   }
 }
 
-/** Bakes the character's own "Idle" mo-cap pose into the clone's skeleton so
- *  it renders standing naturally (arms relaxed) instead of the T/A-pose bind
- *  pose. The clip never animates Root/Hips, so the feet stay planted on the
- *  floor and there is no positional drift. */
-function bakeIdlePose(scene: THREE.Object3D, clip?: THREE.AnimationClip) {
-  if (!clip) return;
-
-  const bones = new Map<string, THREE.Bone>();
-  scene.traverse((object) => {
-    if ((object as THREE.Bone).isBone) {
-      bones.set(object.name, object as THREE.Bone);
-    }
-  });
-
-  for (const track of clip.tracks) {
-    const sep = track.name.lastIndexOf(".");
-    if (sep < 1) continue;
-    const boneName = track.name.slice(0, sep);
-    const prop = track.name.slice(sep + 1);
-    const bone = bones.get(boneName);
-    if (!bone) continue;
-
-    const size = track.getValueSize();
-    const value = track.values.slice(0, size);
-    if (prop === "quaternion" && value.length === 4) {
-      bone.quaternion.fromArray(value);
-    } else if (prop === "translation" && value.length === 3) {
-      bone.position.fromArray(value);
-    } else if (prop === "scale" && value.length === 3) {
-      bone.scale.fromArray(value);
-    }
-  }
-
-  scene.traverse((object) => {
-    if ((object as THREE.SkinnedMesh).isSkinnedMesh) {
-      (object as THREE.SkinnedMesh).skeleton.update();
-    }
-  });
-}
-
 export default function AgentCharacter({
   modelPath,
   position = [0, 0, 0],
@@ -99,10 +60,31 @@ export default function AgentCharacter({
     // table), so flip the whole model to match that convention.
     cloned.rotation.y = Math.PI;
 
-    bakeIdlePose(cloned, gltf.animations?.find((a) => a.name === IDLE_CLIP_NAME));
-
     return cloned;
   }, [gltf]);
+
+  // Each agent owns its own cloned skeleton + mixer + actions, so animations
+  // never share mutable state between stations.
+  const { actions } = useAnimations(gltf.animations, scene);
+
+  // Phase 1: every character loops its own native Idle clip continuously.
+  // Native Idle is the most readable of the kit's natural standing clips
+  // (Body breathe ~8mm + subtle wrist/finger motion; Idle_Neutral is flatter).
+  // Idle clips only key regular bones (never Root/Hips), so there is no
+  // root-motion drift and feet stay planted. The crossfade also hides the
+  // bind (T/A-pose) frame on first mount.
+  useEffect(() => {
+    const idle = actions[IDLE_CLIP_NAME];
+    if (!idle) return;
+
+    idle.reset();
+    idle.fadeIn(IDLE_FADE_SECONDS);
+    idle.play();
+
+    return () => {
+      idle.fadeOut(IDLE_FADE_SECONDS);
+    };
+  }, [actions]);
 
   const autoOffset = useMemo<[number, number, number]>(() => {
     scene.updateMatrixWorld(true);

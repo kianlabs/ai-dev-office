@@ -32,8 +32,9 @@ export default function AgentDummy({
     let rotZ = 0;
 
     switch (mode) {
+      // "idle" is left empty: AgentCharacter already plays the character's
+      // native Idle animation, so an extra bob here would double-motion.
       case "idle":
-        y = Math.sin(t * 1.1) * 0.008;
         break;
 
       case "planning":
