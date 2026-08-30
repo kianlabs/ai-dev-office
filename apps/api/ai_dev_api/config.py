@@ -46,6 +46,11 @@ class Settings(BaseSettings):
     forge_provider: str = ""       # e.g. "custom:archkian" (override only)
     forge_max_turns: int = 12      # bounded Hermes loop guard (override via env)
 
+    # SCOUT execution mode: "mock" or "real"
+    # Phase 3: Enable real read-only repository research by default.
+    # "mock" emits canned demo narrative without touching the filesystem.
+    scout_mode: str = "real"
+
     # QA execution mode: "mock" or "deterministic"
     # Phase 2: Enable REAL deterministic QA (runs detected project checks
     # in a read-only sandbox) by default. "mock" emits canned demo results.

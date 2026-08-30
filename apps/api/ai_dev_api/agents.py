@@ -10,7 +10,7 @@ from ai_dev_agent_core import AgentRegistry, ExecutionContext
 from ai_dev_agent_forge import HermesExecutor, MockForgeExecutor
 from ai_dev_agent_pulse import DeterministicPulseExecutor, MockPulseExecutor
 from ai_dev_agent_qa import DeterministicQAExecutor, MockQAExecutor
-from ai_dev_agent_scout import MockScoutExecutor
+from ai_dev_agent_scout import MockScoutExecutor, RealScoutExecutor
 from ai_dev_shared import AGENT_COLORS, AGENT_ROLES, Task
 
 _MOCK_CLASSES = {
@@ -31,6 +31,20 @@ class MockFactory:
 
     def __call__(self, task: Task, ctx: ExecutionContext):
         return self.executor_cls(task, ctx)
+
+
+@dataclass(frozen=True)
+class ScoutFactory:
+    """Select mock or real SCOUT executor based on config."""
+
+    agent_id: str = "scout"
+
+    def __call__(self, task: Task, ctx: ExecutionContext) -> Any:
+        from .config import settings
+
+        if settings.scout_mode.lower() == "real":
+            return RealScoutExecutor(task, ctx)
+        return MockScoutExecutor(task, ctx)
 
 
 @dataclass(frozen=True)
@@ -108,9 +122,9 @@ def build_registry() -> AgentRegistry:
     registry = AgentRegistry()
 
     # Register ATLAS, SCOUT and PULSE with mock factories.
-    # FORGE and QA have selectable execution modes.
+    # FORGE, QA, and SCOUT have selectable execution modes.
     for agent_id, cls in _MOCK_CLASSES.items():
-        if agent_id in {"forge", "qa", "pulse"}:
+        if agent_id in {"forge", "qa", "pulse", "scout"}:
             continue
 
         registry.register(
@@ -119,6 +133,13 @@ def build_registry() -> AgentRegistry:
             role=AGENT_ROLES[agent_id],
             color=AGENT_COLORS[agent_id],
         )
+
+    registry.register(
+        ScoutFactory(),
+        name=_name("scout"),
+        role=AGENT_ROLES["scout"],
+        color=AGENT_COLORS["scout"],
+    )
 
     registry.register(
         QAFactory(),
