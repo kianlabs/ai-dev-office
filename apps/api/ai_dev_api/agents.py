@@ -78,7 +78,13 @@ class ForgeFactory:
         mode = settings.forge_mode.lower()
 
         if mode == "hermes":
-            executor = HermesExecutor(task, ctx)
+            executor = HermesExecutor(
+                task,
+                ctx,
+                model=settings.forge_model,
+                provider=settings.forge_provider,
+                max_turns=settings.forge_max_turns,
+            )
             executor.timeout = settings.forge_timeout
             return executor
         else:
