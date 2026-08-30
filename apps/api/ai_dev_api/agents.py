@@ -66,17 +66,20 @@ class QAFactory:
 
 @dataclass(frozen=True)
 class PulseFactory:
-    """Select mock or deterministic PULSE executor."""
+    """Select mock or deterministic (real) PULSE executor.
+
+    Phase 4: deterministic local runtime/health monitoring is the default;
+    mock is an explicit fallback (ADO_PULSE_MODE=mock)."""
 
     agent_id: str = "pulse"
 
     def __call__(self, task: Task, ctx: ExecutionContext) -> Any:
         from .config import settings
 
-        if settings.pulse_mode.lower() == "deterministic":
-            return DeterministicPulseExecutor(task, ctx)
+        if settings.pulse_mode.lower() == "mock":
+            return MockPulseExecutor(task, ctx)
 
-        return MockPulseExecutor(task, ctx)
+        return DeterministicPulseExecutor(task, ctx)
 
 
 @dataclass(frozen=True)

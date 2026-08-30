@@ -30,6 +30,9 @@ class TaskCreate(BaseModel):
     # (clean repo) or bounded copy (non-git). The source project is never
     # modified. Rejected if the repo has uncommitted changes.
     target_project: str | None = Field(default=None, max_length=4096)
+    # Optional explicit monitoring config forwarded to PULSE. When omitted,
+    # PULSE derives local targets from the task text.
+    pulse_request: dict | None = None
 
 
 def _stats(tasks: list[Task]) -> dict[str, Any]:
@@ -105,6 +108,7 @@ async def create_task(payload: TaskCreate, state: State, session: Session) -> di
         title=payload.title,
         description=payload.description,
         target_project=payload.target_project,
+        pulse_request=payload.pulse_request,
     )
     session.add(TaskRow.from_task(task))
     await session.commit()

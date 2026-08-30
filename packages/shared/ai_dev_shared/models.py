@@ -30,6 +30,11 @@ class Task(BaseModel):
     # workspace preparation creates an isolated git worktree or bounded copy
     # so the source repository is never modified by FORGE/QA/SCOUT.
     target_project: str | None = None
+    # Optional explicit monitoring configuration for PULSE:
+    #   {"expected_processes": [...], "ports": [...], "health_urls": [...],
+    #    "log_files": [...]}
+    # When unset, PULSE derives loopback-only targets from the task text.
+    pulse_request: dict | None = None
     # Workspace metadata after preparation (mode, source_head, etc.).
     workspace_meta: dict | None = None
     created_at: float = Field(default_factory=time.time)

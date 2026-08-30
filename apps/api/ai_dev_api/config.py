@@ -63,7 +63,9 @@ class Settings(BaseSettings):
     qa_timeout: int = 180
 
     # PULSE execution mode: "mock" or "deterministic"
-    pulse_mode: str = "mock"
+    # Phase 4: Enable REAL deterministic local runtime/process/health probing
+    # by default. "mock" emits canned build/deploy narrative.
+    pulse_mode: str = "deterministic"
 
 
 settings = Settings()

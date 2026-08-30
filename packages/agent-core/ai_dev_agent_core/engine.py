@@ -113,6 +113,11 @@ class OrchestrationEngine:
                 cancel_qa_execution(task_id)
             except Exception:
                 pass
+            try:
+                from ai_dev_agent_pulse.executor import cancel_pulse_execution
+                cancel_pulse_execution(task_id)
+            except Exception:
+                pass
             return True
         # If not the running task but was queued, let cancel_pending handle it.
         return False
