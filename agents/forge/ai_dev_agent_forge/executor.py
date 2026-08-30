@@ -275,15 +275,22 @@ class HermesExecutor:
             await self._cleanup_workspace()
 
     async def _create_workspace(self, task: Task) -> Path:
-        """Create isolated workspace directory for this task."""
-        workspace_root = Path.home() / "ai-dev-office" / "workspaces"
-        workspace_root.mkdir(parents=True, exist_ok=True)
+        """Create isolated workspace directory for this task.
 
-        # Use task ID for unique workspace
-        workspace = workspace_root / task.id[:12]
-        workspace.mkdir(exist_ok=True)
+        Uses the centralized workspace resolver so path computation is not
+        duplicated across FORGE, QA, and SCOUT.
+        """
+        from ai_dev_shared import workspace as ws_mod
+        from ai_dev_shared.workspace import WorkspaceValidationError
 
-        return workspace
+        # Workspace root from config; falls back to shared default.
+        ws_root = getattr(self.ctx.settings, "forge_workspace_root", None)
+        try:
+            info = ws_mod.create(task.id, workspace_root=ws_root)
+        except WorkspaceValidationError as exc:
+            raise RuntimeError(f"Workspace safety check failed: {exc}") from exc
+
+        return info.path
 
     def _build_prompt(self, task: Task) -> str:
         """Build Hermes prompt with workspace constraints and SCOUT context.
@@ -459,9 +466,14 @@ Complete this task inside your workspace, then provide a brief summary of what w
             return
 
         # Keep Hermes runtime state outside the task workspace so FORGE
-        # cannot inspect it through /workspace.
-        runtime_root = self._workspace.parent / ".ado-runtime" / self._workspace.name
-        sandbox_home = runtime_root / "home"
+        # cannot inspect it through /workspace. Use the centralized resolver
+        # so the runtime path is always consistent with the workspace path.
+        from ai_dev_shared import workspace as ws_mod
+        ws_info = ws_mod.resolve(
+            self.task.id,
+            workspace_root=getattr(self.ctx.settings, "forge_workspace_root", None),
+        )
+        sandbox_home = ws_info.sandbox_home
         sandbox_hermes_home = sandbox_home / ".hermes"
         sandbox_hermes_home.mkdir(parents=True, exist_ok=True)
 
@@ -824,14 +836,28 @@ Complete this task inside your workspace, then provide a brief summary of what w
         }
 
     async def _cleanup_workspace(self) -> None:
-        """Remove workspace after task completion.
+        """Remove workspace after task completion if configured to do so.
 
-        Note: We keep workspace for debugging in smoke test.
-        In production, this should clean up.
+        cleanup_workspace=True (via ADO_CLEANUP_WORKSPACE=true env) removes
+        the task workspace after DONE/FAILED. Default is False so workspaces
+        remain available for manual inspection. Cancelled workspaces are
+        always kept regardless of the setting.
         """
-        # For smoke test, keep workspace for inspection
-        # In production: shutil.rmtree(self._workspace, ignore_errors=True)
-        pass
+        from ai_dev_shared import workspace as ws_mod
+
+        cleanup_enabled = getattr(self.ctx.settings, "cleanup_workspace", False)
+        if not cleanup_enabled:
+            return
+
+        if self._workspace is not None:
+            ws_info = ws_mod.resolve(
+                self.task.id,
+                workspace_root=getattr(
+                    self.ctx.settings, "forge_workspace_root", None
+                ),
+            )
+            ws_mod.cleanup(ws_info)
+            logger.debug("Workspace cleaned up after task %s", self.task.id[:12])
 
 
 def cancel_task_execution(task_id: str) -> bool:

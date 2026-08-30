@@ -56,8 +56,15 @@ class DeterministicQAExecutor:
         self._cancel_event = asyncio.Event()
 
     def _workspace_for(self, task: Task) -> Path:
-        root = Path.home() / "ai-dev-office" / "workspaces"
-        return root / task.id[:12]
+        """Resolve the task workspace via the centralized resolver.
+
+        QA operates on the workspace FORGE already created, so we resolve
+        (not create) the path and validate it exists before running checks.
+        """
+        from ai_dev_shared import workspace as ws_mod
+        ws_root = getattr(self.ctx.settings, "forge_workspace_root", None)
+        info = ws_mod.resolve(task.id, workspace_root=ws_root)
+        return info.path
 
     async def execute(
         self,

@@ -110,8 +110,14 @@ def _bounded_read(path: Path) -> str:
 
 
 def _workspace_for(task: Task) -> Path:
-    """Same workspace path FORGE will write to."""
-    return Path.home() / "ai-dev-office" / "workspaces" / task.id[:12]
+    """Resolve the task workspace via the centralized resolver.
+
+    SCOUT inspects the workspace FORGE will write to (or has written to).
+    Resolution is intentionally identical across all three agents.
+    """
+    from ai_dev_shared import workspace as ws_mod
+    info = ws_mod.resolve(task.id)
+    return info.path
 
 
 class RealScoutExecutor:

@@ -1,4 +1,4 @@
-"""ai-dev-shared: domain models and constants for AI Dev Office."""
+"""ai-dev-shared: domain models constants AI Dev Office."""
 
 from ai_dev_shared.constants import (
     ACTIVITY_BUFFER_SIZE,
@@ -16,6 +16,7 @@ from ai_dev_shared.models import (
     Subtask,
     Task,
 )
+from ai_dev_shared import workspace as workspace
 
 __all__ = [
     "ACTIVITY_BUFFER_SIZE",
@@ -30,4 +31,5 @@ __all__ = [
     "AgentRecord",
     "Subtask",
     "Task",
+    "workspace",
 ]

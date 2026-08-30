@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     forge_timeout: int = 600  # seconds
     forge_workspace_root: Path = _REPO_ROOT / "workspaces"
 
+    # Workspace lifecycle. cleanup_workspace=True removes the task workspace
+    # after DONE/FAILED (keeps disk clean). False keeps it for inspection
+    # (useful for debugging; cancelled workspaces are always kept).
+    cleanup_workspace: bool = False
+
     # FORGE / Hermes model resolution. FORGE must NOT hardcode a model or
     # provider; it defers to the active Hermes configuration (config.yaml)
     # unless an explicit override is provided here. Both are optional.
