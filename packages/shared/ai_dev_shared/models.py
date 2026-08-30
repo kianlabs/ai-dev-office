@@ -26,6 +26,13 @@ class Task(BaseModel):
     subtasks: list[Subtask] = Field(default_factory=list)
     summary: str | None = None
     error: str | None = None
+    # Optional conversation session id (Phase 4.1). Tasks sharing a session
+    # id participate in conversation continuation (active plan).
+    session_id: str | None = None
+    # Structured ATLAS response (Phase 4.1): {intent, message, plan,
+    # needs_input}. Set when ATLAS finishes so the UI can show the answer
+    # without the user reading raw activity telemetry.
+    atlas_response: dict | None = None
     # Optional path to the local project this task targets. When set the
     # workspace preparation creates an isolated git worktree or bounded copy
     # so the source repository is never modified by FORGE/QA/SCOUT.

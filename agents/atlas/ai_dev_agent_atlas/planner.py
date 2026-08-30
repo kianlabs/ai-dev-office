@@ -1,18 +1,33 @@
-"""Deterministic role-aware planner for ATLAS.
+"""Deterministic role-aware planner for ATLAS (Phase 4.1 routing table).
 
-This planner decides WHICH specialist roles are needed for a task.
-It does not execute agents and does not perform delegation itself.
+Maps the conversational intent contract onto the specialist roster:
 
-The deterministic implementation is intentionally replaceable by a future
+    CHAT         → (no specialists)
+    PLAN         → (no specialists — ATLAS only, never FORGE/QA)
+    RESEARCH     → SCOUT only
+    IMPLEMENT    → (SCOUT optional) FORGE → QA (PULSE when deploy/monitor)
+    TEST         → QA only
+    MONITOR      → PULSE only
+    NEEDS_INPUT  → (no specialists)
+
+The implementation is intentionally deterministic/replaceable by a future
 LLM-backed ATLAS planner while preserving the same plan contract.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from difflib import SequenceMatcher
 import re
+from dataclasses import dataclass
 
+from ai_dev_agent_core.intents import (
+    INTENT_CHAT,
+    INTENT_IMPLEMENT,
+    INTENT_MONITOR,
+    INTENT_NEEDS_INPUT,
+    INTENT_PLAN,
+    INTENT_RESEARCH,
+    INTENT_TEST,
+)
 from ai_dev_shared import Subtask, Task
 
 
@@ -81,212 +96,15 @@ def _all_specialists_requested(text: str) -> bool:
     return _contains_any(text, _ALL_SPECIALISTS_PHRASES)
 
 
-def _contains_fuzzy_word(
-    text: str,
-    terms: tuple[str, ...],
-    threshold: float = 0.90,
-) -> bool:
-    """Match minor typos only for long, explicit intent words."""
-
-    words = re.findall(r"[a-zA-Z]+", text.lower())
-
-    for word in words:
-        for term in terms:
-            if abs(len(word) - len(term)) > 2:
-                continue
-
-            if SequenceMatcher(None, word, term).ratio() >= threshold:
-                return True
-
-    return False
-
-
 def build_role_aware_plan(task: Task, intent: str) -> AtlasPlan:
-    """Select specialist agents based on the requested work.
+    """Select specialist agents based on the Phase 4.1 intent contract.
 
-    Rules are deterministic for Phase 3C.5 so routing can be tested without
-    spending model tokens. A future real ATLAS planner may replace these rules
-    while returning the same AtlasPlan contract.
+    Rules are deterministic so routing can be tested without spending model
+    tokens. A future real ATLAS planner may replace these rules while
+    returning the same AtlasPlan contract.
     """
 
     text = _task_text(task)
-
-    analysis_only = _contains_any(
-        text,
-        (
-            "analyze",
-            "analyse",
-            "analysis",
-            "research",
-            "investigate",
-            "explain codebase",
-            "review architecture",
-            "analisis",
-            "analisa",
-            "telaah",
-            "teliti",
-            "riset",
-            "jelaskan",
-            "jelaskan codebase",
-            "jelaskan arsitektur",
-            "pahami codebase",
-            "pahami arsitektur",
-            "periksa struktur",
-        ),
-    )
-
-    test_only = _contains_any(
-        text,
-        (
-            "run tests",
-            "run test",
-            "test only",
-            "check tests",
-            "verify tests",
-            "jalankan test",
-            "jalankan tes",
-            "jalankan pengujian",
-            "uji project",
-            "uji proyek",
-            "tes project",
-            "tes proyek",
-            "cek test",
-            "cek tes",
-            "periksa pengujian",
-        ),
-    )
-
-    health_only = _contains_any(
-        text,
-        (
-            "health check",
-            "check health",
-            "runtime health",
-            "workspace health",
-            "monitor runtime",
-            "deployment status",
-            "deployment health",
-            "cek health",
-            "cek kesehatan",
-            "periksa kesehatan",
-            "kesehatan sistem",
-            "kesehatan runtime",
-            "cek runtime",
-            "periksa runtime",
-            "monitor runtime",
-            "pantau runtime",
-            # Phase 4: local service monitoring vocabulary.
-            "cek port",
-            "check port",
-            "periksa port",
-            "cek server",
-            "check server",
-            "periksa server",
-            "cek service",
-            "check service",
-            "periksa service",
-            "verify service",
-            "verify server",
-            "monitor service",
-            "monitor server",
-            "pantau service",
-            "pantau server",
-            "service sehat",
-            "server sehat",
-            "service lokal",
-            "server lokal",
-            "local service",
-            "local server",
-            "service status",
-            "server status",
-            "apakah service",
-            "apakah server",
-            "is the service",
-            "is the server",
-            "health",
-            "sehat",
-        ),
-    )
-
-    no_modification = _contains_any(
-        text,
-        (
-            "without changing",
-            "without modifying",
-            "do not change",
-            "do not modify",
-            "don't change",
-            "don't modify",
-            "read only",
-            "read-only",
-            "tanpa mengubah",
-            "tanpa merubah",
-            "tanpa memodifikasi",
-            "jangan ubah",
-            "jangan mengubah",
-            "jangan merubah",
-            "jangan modifikasi",
-            "jangan memodifikasi",
-            "tidak boleh mengubah",
-            "tidak boleh merubah",
-            "tidak boleh memodifikasi",
-            "jangan edit",
-            "tanpa edit",
-            "read only",
-            "read-only",
-            "hanya analisis",
-            "hanya analisa",
-        ),
-    )
-
-    implementation_requested = (
-        _contains_any(
-            text,
-            (
-                "implement",
-                "create",
-                "add ",
-                "fix",
-                "change",
-                "modify",
-                "refactor",
-                "build",
-                "buat",
-                "tambahkan",
-                "perbaiki",
-                "ubah",
-                "implementasikan",
-            ),
-        )
-        or _contains_fuzzy_word(
-            text,
-            (
-                "implement",
-                "implementasi",
-                "implementasikan",
-            ),
-        )
-    )
-
-    # Explicit read-only language is a hard safety constraint.
-    # Testing/health keywords alone are not enough to suppress implementation:
-    # "implement X and run tests" still requires FORGE + QA.
-    #
-    # Broad classifier intent is only trusted when the task does not explicitly
-    # describe itself as an operational-only request.
-    operational_only = (
-        (test_only or health_only)
-        and not implementation_requested
-    )
-
-    implementation = (
-        not no_modification
-        and not operational_only
-        and (
-            implementation_requested
-            or intent in {"feature", "bug", "auth", "deploy"}
-        )
-    )
 
     research_needed = _contains_any(
         text,
@@ -309,7 +127,7 @@ def build_role_aware_plan(task: Task, intent: str) -> AtlasPlan:
         ),
     )
 
-    deployment_related = intent == "deploy" or _contains_any(
+    deployment_related = _contains_any(
         text,
         (
             "deploy",
@@ -321,30 +139,30 @@ def build_role_aware_plan(task: Task, intent: str) -> AtlasPlan:
         ),
     )
 
-    monitoring_needed = deployment_related or health_only
+    monitoring_related = deployment_related or _contains_any(
+        text,
+        (
+            "health check",
+            "monitor runtime",
+            "monitor service",
+            "monitor server",
+            "pantau runtime",
+            "pantau service",
+            "pantau server",
+            "cek health",
+            "cek kesehatan",
+            "cek port",
+            "check port",
+            "cek server",
+            "check server",
+            "cek service",
+            "check service",
+        ),
+    )
 
-    # Explicit single-role operational requests take precedence.
-    if health_only and not implementation:
-        agents = ("pulse",)
-        reasons = {
-            "pulse": "runtime/workspace health inspection requested",
-        }
-
-    elif test_only and not implementation:
-        agents = ("qa",)
-        reasons = {
-            "qa": "verification/testing requested without implementation",
-        }
-
-    elif analysis_only and not implementation:
-        agents = ("scout",)
-        reasons = {
-            "scout": "research or codebase analysis requested",
-        }
-
-    elif implementation:
+    if intent == INTENT_IMPLEMENT:
         selected: list[str] = []
-        reasons = {}
+        reasons: dict[str, str] = {}
 
         if research_needed:
             selected.append("scout")
@@ -358,7 +176,7 @@ def build_role_aware_plan(task: Task, intent: str) -> AtlasPlan:
         selected.append("qa")
         reasons["qa"] = "implementation must be verified"
 
-        if monitoring_needed:
+        if monitoring_related:
             selected.append("pulse")
             reasons["pulse"] = (
                 "runtime/deployment verification is required"
@@ -366,22 +184,39 @@ def build_role_aware_plan(task: Task, intent: str) -> AtlasPlan:
 
         agents = tuple(selected)
 
-    else:
-        # Conservative default: understand the request without modifying code.
+    elif intent == INTENT_RESEARCH:
         agents = ("scout",)
         reasons = {
-            "scout": "request is ambiguous; gather context before modification",
+            "scout": "research or codebase analysis requested",
         }
+
+    elif intent == INTENT_TEST:
+        agents = ("qa",)
+        reasons = {
+            "qa": "verification/testing requested without implementation",
+        }
+
+    elif intent == INTENT_MONITOR:
+        agents = ("pulse",)
+        reasons = {
+            "pulse": "runtime/workspace health inspection requested",
+        }
+
+    else:
+        # CHAT / PLAN / NEEDS_INPUT (and any unknown intent): ATLAS handles
+        # the request itself. No specialist, no workspace, no repair loop.
+        agents = ()
+        reasons = {}
 
     # ---- Explicit role requirements take precedence ----------------------
     # If the user explicitly names specialist roles (a role chain such as
     # "SCOUT → FORGE → QA → PULSE", a numbered list naming roles, or a phrase
     # like "libatkan semua specialist"), the plan MUST include every requested
-    # role. The heuristic selection above is still the base for ordinary
+    # role. The intent-based selection above is still the base for ordinary
     # tasks with no explicit roles, so minimal role-aware routing is preserved.
     #
     # Explicit roles are a superset: we honour them AND keep any roles the
-    # heuristic already picked, so we never drop a requested specialist while
+    # intent already picked, so we never drop a requested specialist while
     # also never forcing a plain task to use every agent.
     explicit_roles = _explicit_role_mentions(text)
     if _all_specialists_requested(text) or set(explicit_roles) == set(ROLE_ORDER):

@@ -40,6 +40,10 @@ PersistTask = Callable[[Task], Awaitable[None] | None]
 PersistActivity = Callable[[ActivityItem], Awaitable[None] | None]
 
 
+async def _noop_broadcast(_: dict[str, Any]) -> None:
+    """Default broadcast when no realtime bus is wired (tests, scripts)."""
+
+
 class OrchestrationEngine:
     def __init__(
         self,
@@ -53,7 +57,7 @@ class OrchestrationEngine:
     ) -> None:
         self.registry = registry
         self.orchestrator_agent = orchestrator_agent
-        self._broadcast = broadcast or (lambda _m: None)
+        self._broadcast = broadcast or _noop_broadcast
         self._persist_task = persist_task or (lambda _t: None)
         self._persist_activity = persist_activity or _noop_async
         self.settings = settings or {}
@@ -142,11 +146,22 @@ class OrchestrationEngine:
             seed=int(task.id[:8], 16),
         )
 
+        # ── Intent classification (Phase 4.1) ─────────────────────────────
+        # Deterministic, cheap, and computed once so every component (engine
+        # workspace gate, ATLAS routing, repair guard) shares one answer.
+        from .intents import NO_WORKSPACE_INTENTS, classify_intent
+        intent = classify_intent(task)
+        ctx.shared["intent"] = intent
+
         # ── Workspace preparation (Phase 3.5b) ────────────────────────────
         # Prepare the isolated workspace BEFORE any specialist agent runs.
         # Result stored in ctx.shared["workspace_meta"] so SCOUT/FORGE/QA
         # all read from one source of truth.
-        if task.target_project is not None or True:
+        #
+        # Phase 4.1: conversational intents (CHAT/PLAN/NEEDS_INPUT) never
+        # dispatch specialists, so they must never create a workspace either
+        # ("halo" used to create an empty workspace → QA FAIL → repair loop).
+        if intent not in NO_WORKSPACE_INTENTS:
             # Always call prepare_workspace — handles both null (empty mode)
             # and non-null (git-worktree/copy) target projects.
             try:
@@ -255,6 +270,10 @@ class OrchestrationEngine:
             task.summary = event.message
             if task.status == TaskStatus.FAILED:
                 task.error = event.meta.get("error")
+            # Phase 4.1: structured ATLAS response surfaces the answer to the
+            # user (UI) without reading raw activity telemetry.
+            if "atlas_response" in event.meta:
+                task.atlas_response = event.meta["atlas_response"]
 
         task.updated_at = time.time()
         if self._persist_task is not None:

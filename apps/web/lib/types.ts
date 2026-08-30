@@ -27,6 +27,40 @@ export interface Subtask {
   status: TaskStatus;
 }
 
+// Structured ATLAS response (Phase 4.1) — the readable answer a user sees
+// without reading raw Activity Feed telemetry.
+export interface AtlasPlanArtifact {
+  goal?: string;
+  known_requirements?: string[];
+  assumptions?: string[];
+  missing_information?: string[];
+  blockers?: string[];
+  architecture?: string[];
+  features?: string[];
+  data_model?: string[];
+  api_plan?: string[];
+  ui_plan?: string[];
+  implementation_steps?: string[];
+  constraints?: string[];
+  open_questions?: string[];
+  [key: string]: unknown;
+}
+
+export interface AtlasResponse {
+  intent:
+    | "chat"
+    | "plan"
+    | "research"
+    | "implement"
+    | "test"
+    | "monitor"
+    | "needs_input"
+    | string;
+  message: string;
+  plan?: AtlasPlanArtifact | null;
+  needs_input?: boolean | null;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -35,6 +69,8 @@ export interface Task {
   subtasks: Subtask[];
   summary?: string | null;
   error?: string | null;
+  session_id?: string | null;
+  atlas_response?: AtlasResponse | null;
   created_at: number;
   updated_at: number;
 }

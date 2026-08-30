@@ -30,6 +30,19 @@ function computeStats(tasks: Task[]): Stats {
   };
 }
 
+// Stable per-browser conversation session id so sequential messages share
+// the same active plan (conversation continuation, Phase 4.1).
+function getSessionId(): string {
+  if (typeof window === "undefined") return "default";
+  const KEY = "ado_session_id";
+  let id = window.localStorage.getItem(KEY);
+  if (!id) {
+    id = `web-${crypto.randomUUID().slice(0, 12)}`;
+    window.localStorage.setItem(KEY, id);
+  }
+  return id;
+}
+
 export interface UseControlRoom {
   agents: AgentRecord[];
   tasks: Task[];
@@ -140,7 +153,7 @@ export function useControlRoom(): UseControlRoom {
     const res = await fetch("/api/tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, description }),
+      body: JSON.stringify({ title, description, session_id: getSessionId() }),
     });
     if (!res.ok) throw new Error("Failed to create task");
     const task = (await res.json()) as Task;

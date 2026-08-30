@@ -37,6 +37,10 @@ async def _persist_task(task) -> None:
             row.subtasks = fresh.subtasks
             row.summary = fresh.summary
             row.error = fresh.error
+            row.session_id = fresh.session_id
+            row.atlas_response = fresh.atlas_response
+            row.target_project = fresh.target_project
+            row.workspace_meta = fresh.workspace_meta
             row.created_at = fresh.created_at
             row.updated_at = fresh.updated_at
         await session.commit()

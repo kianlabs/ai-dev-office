@@ -33,6 +33,10 @@ class TaskCreate(BaseModel):
     # Optional explicit monitoring config forwarded to PULSE. When omitted,
     # PULSE derives local targets from the task text.
     pulse_request: dict | None = None
+    # Optional conversation session id (Phase 4.1). Tasks sharing a session
+    # id participate in conversation continuation (active plan). When omitted
+    # the default session is used.
+    session_id: str | None = Field(default=None, max_length=64)
 
 
 def _stats(tasks: list[Task]) -> dict[str, Any]:
@@ -109,6 +113,7 @@ async def create_task(payload: TaskCreate, state: State, session: Session) -> di
         description=payload.description,
         target_project=payload.target_project,
         pulse_request=payload.pulse_request,
+        session_id=payload.session_id,
     )
     session.add(TaskRow.from_task(task))
     await session.commit()

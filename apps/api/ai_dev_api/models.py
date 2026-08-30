@@ -27,6 +27,8 @@ class TaskRow(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     target_project: Mapped[str | None] = mapped_column(Text, nullable=True)
     workspace_meta: Mapped[str | None] = mapped_column(Text, nullable=True)
+    session_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    atlas_response: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[float] = mapped_column(Float)
     updated_at: Mapped[float] = mapped_column(Float)
 
@@ -42,6 +44,8 @@ class TaskRow(Base):
             error=self.error,
             target_project=self.target_project,
             workspace_meta=json.loads(self.workspace_meta) if self.workspace_meta else None,
+            session_id=self.session_id,
+            atlas_response=json.loads(self.atlas_response) if self.atlas_response else None,
             created_at=self.created_at,
             updated_at=self.updated_at,
         )
@@ -58,6 +62,8 @@ class TaskRow(Base):
             error=task.error,
             target_project=task.target_project,
             workspace_meta=json.dumps(task.workspace_meta) if task.workspace_meta else None,
+            session_id=task.session_id,
+            atlas_response=json.dumps(task.atlas_response) if task.atlas_response else None,
             created_at=task.created_at,
             updated_at=task.updated_at,
         )

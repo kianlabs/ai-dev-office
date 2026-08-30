@@ -3,6 +3,7 @@
 import { FormEvent, KeyboardEvent, useMemo, useState } from "react";
 
 import ActivityFeed from "@/components/activity-feed";
+import AtlasResponseCard from "@/components/atlas-response-card";
 import ClientOffice from "@/components/office-3d/ClientOffice";
 import { useControlRoom } from "@/lib/use-control-room";
 import { taskInputParts } from "@/lib/task-input";
@@ -318,10 +319,14 @@ export default function Home() {
               activity={room.activity}
             />
 
-            <form
-              onSubmit={handleSubmit}
-              className="absolute bottom-4 left-1/2 z-20 w-[min(680px,calc(100%-48px))] -translate-x-1/2"
-            >
+            <div className="absolute bottom-4 left-1/2 z-20 flex w-[min(680px,calc(100%-48px))] -translate-x-1/2 flex-col gap-2">
+              {/* Structured ATLAS answer (Phase 4.1) above the composer. */}
+              <AtlasResponseCard tasks={room.tasks} />
+
+              <form
+                onSubmit={handleSubmit}
+                className="rounded-2xl border border-white/[0.12] bg-[#0c121c]/95 p-2 shadow-2xl backdrop-blur-xl"
+              >
               <div className="rounded-2xl border border-white/[0.12] bg-[#0c121c]/95 p-2 shadow-2xl backdrop-blur-xl">
                 <div className="flex items-end gap-2">
                   <textarea
@@ -365,7 +370,8 @@ export default function Home() {
                   Enter to dispatch · Shift+Enter for new line · ATLAS delegates automatically
                 </div>
               </div>
-            </form>
+              </form>
+            </div>
           </section>
         </main>
 

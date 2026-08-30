@@ -338,6 +338,22 @@ the workspace or security constraints below.
         else:
             research_block = ""
 
+        # Phase 4.1: bounded brief from the conversation's active plan
+        # (PLAN → IMPLEMENT handoff). Never the raw conversation transcript.
+        plan_brief = self.ctx.shared.get("active_plan_brief")
+
+        if plan_brief:
+            plan_block = f"""
+ATLAS ACTIVE PLAN CONTEXT (bounded brief from the user's active plan):
+{plan_brief}
+
+Treat this plan as the implementation brief. Known requirements and
+constraints are the source of truth. Open questions must NOT be answered by
+inventing facts — use clearly marked placeholders instead.
+"""
+        else:
+            plan_block = ""
+
         repair = self.ctx.shared.get("repair")
 
         if repair:
@@ -395,6 +411,8 @@ Re-run or inspect the relevant behavior before reporting success.
         return f"""You are FORGE, a coding agent working on a single task.
 
 {research_block}
+
+{plan_block}
 
 {repair_block}
 

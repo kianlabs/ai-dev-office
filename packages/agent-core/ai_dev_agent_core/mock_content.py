@@ -10,6 +10,11 @@ import re
 
 from ai_dev_shared import Task
 
+# Phase 4.1: the real intent contract lives in `intents.py`. This module
+# re-exports it so existing importers keep working; the legacy 4-way mock
+# classifier below is only retained for the mock doc-subject demo content.
+from .intents import classify_intent  # noqa: F401  (re-export)
+
 _DOC_SUBJECT = {
     "auth": "NextAuth.js",
     "deploy": "Serverless deployment",
@@ -18,8 +23,8 @@ _DOC_SUBJECT = {
 }
 
 
-def classify_intent(task: Task) -> str:
-    """Very cheap stand-in for requirement understanding."""
+def _legacy_mock_intent(task: Task) -> str:
+    """Very cheap stand-in for requirement understanding (mock demos only)."""
     text = f"{task.title} {task.description}".lower()
     if re.search(r"deploy|ci/cd|release|docker|pipeline|production", text):
         return "deploy"
@@ -32,7 +37,7 @@ def classify_intent(task: Task) -> str:
 
 def doc_subject_for(task: Task) -> str:
     """Which documentation SCOUT pretends to read."""
-    return _DOC_SUBJECT[classify_intent(task)]
+    return _DOC_SUBJECT.get(_legacy_mock_intent(task), "React Server Components")
 
 
 def repo_name_for(task: Task) -> str:
