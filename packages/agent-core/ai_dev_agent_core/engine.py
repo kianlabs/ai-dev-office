@@ -102,10 +102,15 @@ class OrchestrationEngine:
         """
         if self._running is not None and self._running.id == task_id:
             self._cancelled.add(task_id)
-            # Best-effort: kill the FORGE subprocess if one is registered.
+            # Best-effort: kill the FORGE or QA subprocess if one is registered.
             try:
                 from ai_dev_agent_forge.executor import cancel_task_execution
                 cancel_task_execution(task_id)
+            except Exception:
+                pass
+            try:
+                from ai_dev_agent_qa.executor import cancel_qa_execution
+                cancel_qa_execution(task_id)
             except Exception:
                 pass
             return True

@@ -47,7 +47,9 @@ class Settings(BaseSettings):
     forge_max_turns: int = 12      # bounded Hermes loop guard (override via env)
 
     # QA execution mode: "mock" or "deterministic"
-    qa_mode: str = "mock"
+    # Phase 2: Enable REAL deterministic QA (runs detected project checks
+    # in a read-only sandbox) by default. "mock" emits canned demo results.
+    qa_mode: str = "deterministic"
     qa_timeout: int = 180
 
     # PULSE execution mode: "mock" or "deterministic"
