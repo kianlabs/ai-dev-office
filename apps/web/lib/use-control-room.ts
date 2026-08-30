@@ -24,7 +24,9 @@ function computeStats(tasks: Task[]): Stats {
     ).length,
     queued: tasks.filter((t) => t.status === "QUEUED").length,
     done: tasks.filter((t) => t.status === "DONE").length,
-    failed: tasks.filter((t) => t.status === "FAILED").length,
+    failed: tasks.filter((t) =>
+      ["FAILED", "INTERRUPTED"].includes(t.status),
+    ).length,
   };
 }
 

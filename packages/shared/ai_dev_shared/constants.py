@@ -12,6 +12,7 @@ class TaskStatus(str, Enum):
     REVIEW = "REVIEW"
     DONE = "DONE"
     FAILED = "FAILED"
+    INTERRUPTED = "INTERRUPTED"  # Task cancelled by user or system
 
 
 class AgentStatus(str, Enum):

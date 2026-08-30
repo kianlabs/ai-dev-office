@@ -33,9 +33,18 @@ class Settings(BaseSettings):
     port: int = 8000
 
     # FORGE execution mode: "mock" or "hermes"
-    forge_mode: str = "mock"
+    # Phase 1: Enable real Hermes execution by default
+    forge_mode: str = "hermes"
     forge_timeout: int = 600  # seconds
     forge_workspace_root: Path = _REPO_ROOT / "workspaces"
+
+    # FORGE / Hermes model resolution. FORGE must NOT hardcode a model or
+    # provider; it defers to the active Hermes configuration (config.yaml)
+    # unless an explicit override is provided here. Both are optional.
+    # Leave empty to use Hermes' configured default model/provider.
+    forge_model: str = ""          # e.g. "kr/claude-sonnet-4.5" (override only)
+    forge_provider: str = ""       # e.g. "custom:archkian" (override only)
+    forge_max_turns: int = 12      # bounded Hermes loop guard (override via env)
 
     # QA execution mode: "mock" or "deterministic"
     qa_mode: str = "mock"

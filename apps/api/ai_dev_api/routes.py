@@ -43,6 +43,10 @@ def _stats(tasks: list[Task]) -> dict[str, Any]:
 def _snapshot(
     state: AppState, tasks: list[Task]
 ) -> dict[str, Any]:
+    # Activity feed is in-memory (engine.feed) plus what is persisted. The
+    # WS snapshot is sent from an async handler; we use the in-memory feed
+    # here (persistence is for restart/reconnect reconciliation, loaded by the
+    # dedicated /api/activity endpoint which is async-safe).
     return {
         "tasks": [t.model_dump() for t in tasks],
         "agents": state.registry.snapshot(),
@@ -86,21 +90,73 @@ async def list_agents(state: State) -> list[dict[str, Any]]:
 
 
 @router.get("/activity")
-async def activity(state: State) -> list[dict[str, Any]]:
-    return [a.model_dump() for a in reversed(list(state.engine.feed))]
+async def activity(state: State, session: Session) -> list[dict[str, Any]]:
+    # In-memory feed (most recent events this process) plus persisted history
+    # from the database (survives restart/reconnect). Merge + dedupe by id.
+    from .models import ActivityRow
+    from sqlalchemy import select
+
+    persisted = (
+        await session.execute(select(ActivityRow).order_by(ActivityRow.at))
+    ).scalars().all()
+    persisted_items = [r.to_item() for r in persisted]
+
+    seen = {a.id for a in persisted_items}
+    for item in reversed(list(state.engine.feed)):
+        if item.id not in seen:
+            persisted_items.append(item)
+            seen.add(item.id)
+
+    persisted_items.sort(key=lambda a: a.at)
+    return [a.model_dump() for a in reversed(persisted_items)]
 
 
 @router.delete("/tasks/{task_id}", status_code=204)
 async def cancel_task(task_id: str, state: State, session: Session) -> None:
+    """Cancel a task - works for both QUEUED and RUNNING tasks."""
+    from ai_dev_agent_forge.executor import cancel_task_execution as cancel_forge
+
     task = await session.get(TaskRow, task_id)
     if task is None:
         raise HTTPException(404, "Task not found")
-    if task.status == TaskStatus.QUEUED.value:
+
+    task_status = TaskStatus(task.status)
+
+    # Cancel QUEUED task (not yet started)
+    if task_status == TaskStatus.QUEUED:
         if state.engine.cancel_pending(task_id):
             await session.delete(task)
             await session.commit()
         return
-    raise HTTPException(409, "Only queued tasks can be cancelled")
+
+    # Cancel RUNNING task
+    if task_status in (TaskStatus.PLANNING, TaskStatus.RUNNING, TaskStatus.REVIEW):
+        # Ask the engine to stop the pipeline for this task. The engine checks
+        # the cancel flag after each streamed event, marks the task
+        # INTERRUPTED, and signals any live FORGE Hermes subprocess (without
+        # touching the global Hermes gateway). Returns True if this is the
+        # actively-running task.
+        engine_cancelled = state.engine.cancel_running(task_id)
+
+        # Mark the task INTERRUPTED in the DB and broadcast regardless, so the
+        # UI reflects the cancel immediately even if the engine is between
+        # events. The engine will also persist/emit the final INTERRUPTED state.
+        task.status = TaskStatus.INTERRUPTED.value
+        task.error = "Task cancelled by user"
+        task.updated_at = time.time()
+        await session.commit()
+
+        await state.bus.broadcast({
+            "type": "task_status",
+            "data": {
+                "id": task_id,
+                "status": TaskStatus.INTERRUPTED.value,
+                "error": "Task cancelled by user",
+            }
+        })
+        return
+
+    raise HTTPException(409, f"Cannot cancel task with status {task_status.value}")
 
 
 # ---------------------------------------------------------------- WS
@@ -115,12 +171,31 @@ async def ws_endpoint(ws: WebSocket) -> None:
     bus: RealtimeBus = state.bus
     await bus.connect(ws)
     try:
+        from .models import ActivityRow
+        from sqlalchemy import select
+
         async with state.session_factory() as session:
             rows = (
                 await session.execute(select(TaskRow).order_by(TaskRow.created_at))
             ).scalars()
             tasks = [r.to_task() for r in rows]
-        await ws.send_json({"type": "snapshot", "data": _snapshot(state, tasks)})
+
+            # Reconcile activity: persisted history + in-memory (this process)
+            persisted = (
+                await session.execute(select(ActivityRow).order_by(ActivityRow.at))
+            ).scalars().all()
+            persisted_items = [r.to_item() for r in persisted]
+            seen = {a.id for a in persisted_items}
+            for item in reversed(list(state.engine.feed)):
+                if item.id not in seen:
+                    persisted_items.append(item)
+                    seen.add(item.id)
+            persisted_items.sort(key=lambda a: a.at)
+
+            snap = _snapshot(state, tasks)
+            snap["activity"] = [a.model_dump() for a in reversed(persisted_items)]
+
+        await ws.send_json({"type": "snapshot", "data": snap})
         while True:
             msg = await ws.receive_json()
             if isinstance(msg, dict) and msg.get("type") == "ping":

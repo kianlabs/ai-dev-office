@@ -6,7 +6,8 @@ export type TaskStatus =
   | "RUNNING"
   | "REVIEW"
   | "DONE"
-  | "FAILED";
+  | "FAILED"
+  | "INTERRUPTED";
 
 export type AgentStatus = "IDLE" | "WORKING" | "WAITING" | "ERROR";
 

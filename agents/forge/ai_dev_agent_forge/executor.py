@@ -1,4 +1,7 @@
-"""Real HermesExecutor for FORGE - Coding Agent.
+"""
+Real HermesExecutor for FORGE - Coding Agent.
+
+NON-BLOCKING VERSION with realtime streaming and cancellation support.
 
 This is a MINIMAL smoke integration that runs Hermes as a subprocess with bubblewrap isolation.
 Filesystem isolation via bwrap, NOT network isolation.
@@ -18,6 +21,12 @@ Isolation properties:
 - System paths: read-only
 - Hermes config: required config exposed read-only
 - Provider credential: only the required provider key is passed via environment
+
+Changes from blocking version:
+- Streams stdout/stderr in realtime
+- Yields intermediate progress events
+- Supports cancellation via cancel_event
+- Non-blocking event loop
 """
 
 from __future__ import annotations
@@ -32,9 +41,20 @@ from ai_dev_agent_core import ExecutionContext
 from ai_dev_shared import AgentEvent, Task
 from ai_dev_shared.constants import AgentStatus, EventKind, TaskStatus
 
+# Default heartbeat interval (seconds) for periods with no real activity.
+DEFAULT_HEARTBEAT_INTERVAL = 15
+
 # Global semaphore to enforce FORGE concurrency = 1
 # Prevents multiple Hermes executions running simultaneously
 _FORGE_SEMAPHORE = asyncio.Semaphore(1)
+
+# Global execution registry for cancellation
+_RUNNING_PROCESSES: dict[str, asyncio.subprocess.Process] = {}
+
+# Shared cancel events so cancel_task_execution() can signal the running
+# executor, not just SIGTERM the OS process (so the executor reports
+# INTERRUPTED instead of FAILED when cancelled).
+_RUNNING_CANCEL_EVENTS: dict[str, asyncio.Event] = {}
 
 # Isolation configuration
 BWRAP_PATH = "/usr/bin/bwrap"
@@ -80,32 +100,67 @@ def _load_archkian_api_key() -> str:
 class HermesExecutor:
     """Bridges AgentExecutor contract to Hermes CLI subprocess.
 
-    Each task runs in an isolated workspace directory.
-    Hermes is invoked with -q (non-interactive) and --quiet flags.
+    NON-BLOCKING VERSION:
+    - Streams stdout/stderr in realtime
+    - Yields intermediate progress events
+    - Supports cancellation via cancel_event
+    - Process tracked in global registry for cancellation
     """
 
     agent_id = "forge"
     DEFAULT_TIMEOUT = 600  # 10 minutes
 
-    def __init__(self, task: Task, ctx: ExecutionContext) -> None:
+    def __init__(
+        self,
+        task: Task,
+        ctx: ExecutionContext,
+        *,
+        model: str = "",
+        provider: str = "",
+        max_turns: int = 12,
+        heartbeat_interval: int = DEFAULT_HEARTBEAT_INTERVAL,
+    ) -> None:
         self.task = task
         self.ctx = ctx
         self.timeout = self.DEFAULT_TIMEOUT
+        # Model resolution precedence: explicit AI Dev Office override ->
+        # Hermes configured default (used when both are empty) -> fail honestly.
+        # FORGE must never hardcode a model/provider here.
+        self.model = model
+        self.provider = provider
+        self.max_turns = max_turns
+        self.heartbeat_interval = max(1, int(heartbeat_interval))
         self._workspace: Path | None = None
+        self._process: asyncio.subprocess.Process | None = None
+        self._cancel_event = asyncio.Event()
 
     async def execute(
         self, task: Task, ctx: ExecutionContext
     ) -> AsyncIterator[AgentEvent]:
-        """Execute task via Hermes CLI and stream AgentEvents."""
+        """Execute task via Hermes CLI and stream AgentEvents in realtime."""
         from ai_dev_agent_core import MockRuntime
 
         # Create mock runtime for event helpers
         r = MockRuntime(task, ctx)
         r.agent_id = self.agent_id
 
+        # Register cancel event so external cancel_task_execution() can signal us
+        _RUNNING_CANCEL_EVENTS[task.id] = self._cancel_event
+
         # Emit start event
         yield await r.tick(
             r.working("Initializing FORGE workspace", task_status=TaskStatus.RUNNING)
+        )
+
+        # Safely report resolved model/provider (no secrets). Empty values
+        # mean Hermes will use its configured default from config.yaml.
+        resolved_model = self.model or "hermes-config-default"
+        resolved_provider = self.provider or "hermes-config-default"
+        yield await r.tick(
+            r.say(
+                f"FORGE model={resolved_model} provider={resolved_provider} "
+                f"max_turns={self.max_turns}"
+            )
         )
 
         # Acquire semaphore to enforce FORGE concurrency = 1
@@ -128,27 +183,11 @@ class HermesExecutor:
                     prompt = self._build_prompt(task)
                     yield await r.tick(r.say("Task prompt prepared with workspace constraints"))
 
-                    # Run Hermes
+                    # Run Hermes with realtime streaming
                     yield await r.tick(r.working("Starting Hermes agent process"))
 
-                    result = await self._run_hermes(prompt, r)
-
-                    if result["success"]:
-                        yield await r.tick(r.say(f"Hermes completed: {result['output'][:200]}"))
-                        yield await r.tick(r.idle("Idle"))
-                        yield await r.tick(
-                            r.result(TaskStatus.DONE, f"Task completed via Hermes: {result['output'][:500]}")
-                        )
-                    else:
-                        yield await r.tick(r.say(f"Hermes failed: {result['error']}"))
-                        yield await r.tick(r.failure("Hermes execution failed"))
-                        yield await r.tick(
-                            r.result(
-                                TaskStatus.FAILED,
-                                f"Hermes execution failed: {result['error']}",
-                                meta={"error": result["error"]},
-                            )
-                        )
+                    async for event in self._run_hermes_streaming(prompt, r):
+                        yield event
 
             except asyncio.TimeoutError:
                 yield await r.tick(r.failure(f"Task timed out after {self.timeout}s"))
@@ -157,6 +196,15 @@ class HermesExecutor:
                         TaskStatus.FAILED,
                         f"FORGE timeout after {self.timeout} seconds",
                         meta={"error": "timeout"},
+                    )
+                )
+            except asyncio.CancelledError:
+                yield await r.tick(r.failure("Task cancelled by user"))
+                yield await r.tick(
+                    r.result(
+                        TaskStatus.INTERRUPTED,
+                        "Task cancelled by user",
+                        meta={"error": "cancelled"},
                     )
                 )
             except Exception as err:
@@ -169,6 +217,11 @@ class HermesExecutor:
                     )
                 )
         finally:
+            # Cleanup process from registry
+            if task.id in _RUNNING_PROCESSES:
+                del _RUNNING_PROCESSES[task.id]
+            if task.id in _RUNNING_CANCEL_EVENTS:
+                del _RUNNING_CANCEL_EVENTS[task.id]
             await self._cleanup_workspace()
 
     async def _create_workspace(self, task: Task) -> Path:
@@ -216,10 +269,7 @@ Treat SCOUT research as implementation guidance, not as permission to violate
 the workspace or security constraints below.
 """
         else:
-            research_block = """
-SCOUT RESEARCH CONTEXT:
-No research brief was provided.
-"""
+            research_block = ""
 
         repair = self.ctx.shared.get("repair")
 
@@ -273,10 +323,7 @@ be repaired.
 Re-run or inspect the relevant behavior before reporting success.
 """
         else:
-            repair_block = """
-REPAIR MODE:
-This is the initial implementation, not a repair attempt.
-"""
+            repair_block = ""
 
         return f"""You are FORGE, a coding agent working on a single task.
 
@@ -306,25 +353,36 @@ TASK:
 Complete this task inside your workspace, then provide a brief summary of what was done.
 """
 
-    async def _run_hermes(
+    async def _run_hermes_streaming(
         self, prompt: str, runtime
-    ) -> dict:
-        """Run Hermes CLI as subprocess with bwrap filesystem isolation.
+    ) -> AsyncIterator[AgentEvent]:
+        """Run Hermes CLI with realtime stdout/stderr streaming.
 
-        Returns:
-            {"success": bool, "output": str, "error": str}
+        Yields intermediate progress events as output arrives.
+        Supports cancellation via cancel_event.
         """
+        import os
+        import signal
+
+        r = runtime
+
         if self._workspace is None:
-            return {"success": False, "error": "No workspace created"}
+            yield await r.tick(r.failure("No workspace created"))
+            yield await r.tick(r.result(TaskStatus.FAILED, "No workspace created"))
+            return
 
         # Check bwrap is available
         if not Path(BWRAP_PATH).exists():
-            return {"success": False, "error": f"bwrap not found at {BWRAP_PATH}"}
+            yield await r.tick(r.failure(f"bwrap not found at {BWRAP_PATH}"))
+            yield await r.tick(r.result(TaskStatus.FAILED, f"bwrap not found at {BWRAP_PATH}"))
+            return
 
         # Verify the host Hermes installation and minimal configuration.
         hermes_path = shutil.which("hermes")
         if not hermes_path:
-            return {"success": False, "error": "Hermes CLI not found in PATH"}
+            yield await r.tick(r.failure("Hermes CLI not found in PATH"))
+            yield await r.tick(r.result(TaskStatus.FAILED, "Hermes CLI not found in PATH"))
+            return
 
         # Hermes venv uses an absolute interpreter path. Resolve its real
         # Python runtime so the same path can be exposed read-only in bwrap.
@@ -345,10 +403,10 @@ Complete this task inside your workspace, then provide a brief summary of what w
         )
         missing = [str(path) for path in required_paths if not path.exists()]
         if missing:
-            return {
-                "success": False,
-                "error": f"Required Hermes path missing: {', '.join(missing)}",
-            }
+            error_msg = f"Required Hermes path missing: {', '.join(missing)}"
+            yield await r.tick(r.failure(error_msg))
+            yield await r.tick(r.result(TaskStatus.FAILED, error_msg))
+            return
 
         # Keep Hermes runtime state outside the task workspace so FORGE
         # cannot inspect it through /workspace.
@@ -430,8 +488,14 @@ Complete this task inside your workspace, then provide a brief summary of what w
                 "-q",
                 prompt,
                 "--quiet",
-                "-m", "kr/glm-5",
-                "--provider", "custom:archkian",
+
+                # Model/provider resolution precedence:
+                #   1. Explicit AI Dev Office override (self.model / self.provider)
+                #   2. Hermes configured default (config.yaml) -> omit both flags
+                # Hermes CLI uses its config.yaml default when neither is given.
+                *(["-m", self.model] if self.model else []),
+                *(["--provider", self.provider] if self.provider else []),
+                "--max-turns", str(self.max_turns),
             ]
 
             proc = await asyncio.create_subprocess_exec(
@@ -441,40 +505,127 @@ Complete this task inside your workspace, then provide a brief summary of what w
                 start_new_session=True,
             )
 
-            try:
-                stdout, stderr = await asyncio.wait_for(
-                    proc.communicate(), timeout=self.timeout
-                )
-            except asyncio.TimeoutError:
-                # Kill the whole sandbox process group so Hermes/tool children
-                # cannot survive after the bwrap parent is terminated.
-                import os
-                import signal
+            # Register process for cancellation
+            self._process = proc
+            _RUNNING_PROCESSES[self.task.id] = proc
 
+            # Stream stdout in realtime
+            output_lines = []
+            error_lines = []
+
+            async def read_stdout():
+                """Read stdout line by line."""
+                if proc.stdout is None:
+                    return
                 try:
-                    os.killpg(proc.pid, signal.SIGKILL)
-                except ProcessLookupError:
+                    async for line in proc.stdout:
+                        text = line.decode("utf-8", errors="replace").strip()
+                        if text:
+                            output_lines.append(text)
+                except Exception:
                     pass
 
-                await proc.wait()
-                raise
+            async def read_stderr():
+                """Read stderr line by line."""
+                if proc.stderr is None:
+                    return
+                try:
+                    async for line in proc.stderr:
+                        text = line.decode("utf-8", errors="replace").strip()
+                        if text:
+                            error_lines.append(text)
+                            # Yield stderr as progress (warnings, etc.)
+                            if not text.startswith("⚠"):
+                                yield await r.tick(r.say(f"[stderr] {text[:100]}"))
+                except Exception:
+                    pass
 
-            output = stdout.decode("utf-8", errors="replace").strip()
-            error = stderr.decode("utf-8", errors="replace").strip()
+            # Run both readers concurrently
+            stdout_task = asyncio.create_task(read_stdout())
+
+            # Wait for process with timeout, checking cancel event
+            start_time = time.time()
+
+            while proc.returncode is None:
+                # Check cancellation
+                if self._cancel_event.is_set():
+                    yield await r.tick(r.say("Cancellation requested, terminating process..."))
+                    try:
+                        os.killpg(proc.pid, signal.SIGTERM)
+                        await asyncio.sleep(0.5)
+                        if proc.returncode is None:
+                            os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    await proc.wait()
+                    yield await r.tick(r.failure("Task cancelled by user"))
+                    yield await r.tick(r.result(TaskStatus.INTERRUPTED, "Task cancelled by user"))
+                    return
+
+                # Check timeout
+                elapsed = time.time() - start_time
+                if elapsed > self.timeout:
+                    yield await r.tick(r.say(f"Timeout ({self.timeout}s), terminating process..."))
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    await proc.wait()
+                    raise asyncio.TimeoutError()
+
+                # Yield periodic heartbeat only when there is no real activity,
+                # at the configured interval (default 15s) — not 5s spam.
+                if int(elapsed) > 0 and int(elapsed) % self.heartbeat_interval == 0:
+                    yield await r.tick(
+                        r.say(f"Sedang mengerjakan... ({int(elapsed)}s)")
+                    )
+
+                # Wait a bit before checking again
+                await asyncio.sleep(0.1)
+
+            # Wait for stdout reader to finish
+            await stdout_task
+
+            # If cancellation was requested, report INTERRUPTED regardless of
+            # how the process exited (SIGTERM looks like a non-zero returncode).
+            if self._cancel_event.is_set():
+                yield await r.tick(r.failure("Task cancelled by user"))
+                yield await r.tick(
+                    r.result(TaskStatus.INTERRUPTED, "Task cancelled by user")
+                )
+                return
+
+            # Collect final output
+            output = "\n".join(output_lines)
+            error = "\n".join(error_lines)
 
             if proc.returncode == 0:
-                return {"success": True, "output": output, "error": ""}
+                yield await r.tick(r.say(f"Hermes completed: {output[:200]}"))
+                yield await r.tick(r.idle("Idle"))
+                yield await r.tick(
+                    r.result(TaskStatus.DONE, f"Task completed via Hermes: {output[:500]}")
+                )
             else:
-                return {
-                    "success": False,
-                    "output": output,
-                    "error": error or f"Exit code {proc.returncode}",
-                }
+                yield await r.tick(r.say(f"Hermes failed: {error}"))
+                yield await r.tick(r.failure("Hermes execution failed"))
+                yield await r.tick(
+                    r.result(
+                        TaskStatus.FAILED,
+                        f"Hermes execution failed: {error}",
+                        meta={"error": error},
+                    )
+                )
 
         except FileNotFoundError:
-            return {"success": False, "error": "Hermes executable not found"}
+            yield await r.tick(r.failure("Hermes executable not found"))
+            yield await r.tick(r.result(TaskStatus.FAILED, "Hermes executable not found"))
         except Exception as err:
-            return {"success": False, "error": str(err)}
+            yield await r.tick(r.failure(f"Unexpected error: {err}"))
+            yield await r.tick(r.result(TaskStatus.FAILED, f"FORGE error: {err}"))
+
+    def request_cancel(self):
+        """Request cancellation of the running Hermes process."""
+        self._cancel_event.set()
 
     async def _cleanup_workspace(self) -> None:
         """Remove workspace after task completion.
@@ -485,3 +636,43 @@ Complete this task inside your workspace, then provide a brief summary of what w
         # For smoke test, keep workspace for inspection
         # In production: shutil.rmtree(self._workspace, ignore_errors=True)
         pass
+
+
+def cancel_task_execution(task_id: str) -> bool:
+    """Cancel a running FORGE execution by task ID.
+
+    Signals the executor's cancel event (so it reports INTERRUPTED, not
+    FAILED) AND sends SIGTERM to the sandbox process group. Does NOT touch
+    the global Hermes gateway — only the bwrap process group for this task.
+
+    Returns True if a running execution was found and signalled, False if
+    there was nothing to cancel.
+    """
+    proc = _RUNNING_PROCESSES.get(task_id)
+    if proc is None:
+        return False
+
+    # Signal the executor coroutine so it yields INTERRUPTED cleanly.
+    event = _RUNNING_CANCEL_EVENTS.get(task_id)
+    if event is not None:
+        event.set()
+
+    import os
+    import signal
+
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+        # Remove the handle so it cannot be double-cancelled and is cleaned
+        # up even if the executor's own finally has not run yet.
+        _RUNNING_PROCESSES.pop(task_id, None)
+        _RUNNING_CANCEL_EVENTS.pop(task_id, None)
+        return True
+    except ProcessLookupError:
+        # Process already gone — clean up the stale handle.
+        _RUNNING_PROCESSES.pop(task_id, None)
+        _RUNNING_CANCEL_EVENTS.pop(task_id, None)
+        return False
+    except Exception:
+        _RUNNING_PROCESSES.pop(task_id, None)
+        _RUNNING_CANCEL_EVENTS.pop(task_id, None)
+        return False

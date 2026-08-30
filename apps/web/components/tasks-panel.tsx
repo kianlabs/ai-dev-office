@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { Task, TaskStatus } from "@/lib/types";
 
 const TASK_STYLE: Record<TaskStatus, string> = {
@@ -7,9 +8,29 @@ const TASK_STYLE: Record<TaskStatus, string> = {
   REVIEW: "text-amber border-amber/40 bg-amber/10",
   DONE: "text-mint border-mint/40 bg-mint/10",
   FAILED: "text-red-400 border-red-500/40 bg-red-500/10",
+  INTERRUPTED: "text-slate-500 border-slate-600 bg-slate-800/40",
 };
 
+const CANCELLABLE: TaskStatus[] = ["PLANNING", "RUNNING", "REVIEW"];
+
 export default function TasksPanel({ tasks }: { tasks: Task[] }) {
+  const [cancelling, setCancelling] = useState<string | null>(null);
+
+  async function cancelTask(id: string) {
+    setCancelling(id);
+    try {
+      const res = await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+      if (!res.ok && res.status !== 409) {
+        // 409 = already in a terminal/non-cancellable state; ignore.
+        console.error(`Cancel failed: ${res.status}`);
+      }
+    } catch (err) {
+      console.error("Cancel error", err);
+    } finally {
+      setCancelling(null);
+    }
+  }
+
   return (
     <div className="flex h-full flex-col rounded-xl border border-line bg-panel">
       <div className="flex items-center justify-between border-b border-line px-4 py-3">
@@ -32,13 +53,24 @@ export default function TasksPanel({ tasks }: { tasks: Task[] }) {
                   <span className="text-sm font-medium text-slate-100">
                     {task.title}
                   </span>
-                  <span
-                    className={`shrink-0 rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold ${
-                      TASK_STYLE[task.status]
-                    }`}
-                  >
-                    {task.status}
-                  </span>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span
+                      className={`rounded-full border px-2 py-0.5 font-mono text-[10px] font-semibold ${TASK_STYLE[task.status]}`}
+                    >
+                      {task.status}
+                    </span>
+                    {CANCELLABLE.includes(task.status) && (
+                      <button
+                        type="button"
+                        disabled={cancelling === task.id}
+                        onClick={() => cancelTask(task.id)}
+                        className="rounded-full border border-red-500/40 px-2 py-0.5 font-mono text-[10px] font-semibold text-red-400 transition hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-40"
+                        title="Batalkan Tugas"
+                      >
+                        {cancelling === task.id ? "…" : "Batalkan"}
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {task.subtasks.length > 0 && (
                   <div className="mt-2 space-y-1">

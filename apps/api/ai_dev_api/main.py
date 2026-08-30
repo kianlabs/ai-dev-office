@@ -7,8 +7,10 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
 from ai_dev_agent_core import OrchestrationEngine
+from ai_dev_shared import TaskStatus
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
 
 from .agents import build_registry
 from .app_state import AppState, set_state
@@ -40,9 +42,42 @@ async def _persist_task(task) -> None:
         await session.commit()
 
 
+async def _persist_activity(item) -> None:
+    """Persist each activity item so the feed survives restarts/reconnects."""
+    from .models import ActivityRow
+
+    async with session_factory() as session:
+        # Idempotent: skip if this event id is already stored.
+        existing = await session.get(ActivityRow, item.id)
+        if existing is not None:
+            return
+        session.add(ActivityRow.from_item(item))
+        await session.commit()
+
+
+async def _recover_orphans() -> None:
+    """Mark RUNNING/REVIEW tasks from a dead backend as INTERRUPTED.
+
+    On startup the in-memory execution state is gone, so any task left in a
+    non-terminal state was interrupted by the previous process exiting.
+    """
+    from .models import TaskRow
+
+    terminal = {TaskStatus.DONE.value, TaskStatus.FAILED.value, TaskStatus.INTERRUPTED.value}
+    async with session_factory() as session:
+        rows = (await session.execute(select(TaskRow))).scalars().all()
+        for row in rows:
+            if row.status not in terminal:
+                row.status = TaskStatus.INTERRUPTED.value
+                row.error = "Eksekusi terputus karena backend berhenti."
+                row.updated_at = time.time()
+        await session.commit()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await init_db()
+    await _recover_orphans()
     registry = build_registry()
     bus = RealtimeBus()
 
@@ -51,6 +86,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         orchestrator_agent="atlas",
         broadcast=bus.broadcast,
         persist_task=_persist_task,
+        persist_activity=_persist_activity,
         settings={"speed": settings.speed},
     )
     state = AppState(registry=registry, engine=engine, bus=bus, session_factory=session_factory)

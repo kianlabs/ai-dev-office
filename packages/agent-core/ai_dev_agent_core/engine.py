@@ -37,6 +37,7 @@ from .registry import AgentRegistry
 
 Broadcast = Callable[[dict[str, Any]], Awaitable[None]]
 PersistTask = Callable[[Task], Awaitable[None] | None]
+PersistActivity = Callable[[ActivityItem], Awaitable[None] | None]
 
 
 class OrchestrationEngine:
@@ -47,18 +48,22 @@ class OrchestrationEngine:
         orchestrator_agent: str = "atlas",
         broadcast: Broadcast | None = None,
         persist_task: PersistTask | None = None,
+        persist_activity: PersistActivity | None = None,
         settings: dict[str, Any] | None = None,
     ) -> None:
         self.registry = registry
         self.orchestrator_agent = orchestrator_agent
         self._broadcast = broadcast or (lambda _m: None)
         self._persist_task = persist_task or (lambda _t: None)
+        self._persist_activity = persist_activity or _noop_async
         self.settings = settings or {}
         self.feed: deque[ActivityItem] = deque(maxlen=ACTIVITY_BUFFER_SIZE)
         self._lock = asyncio.Lock()
         self._pending: deque[Task] = deque()
         self._running: Task | None = None
         self._worker: asyncio.Task | None = None
+        # Task IDs the user has requested to cancel while running.
+        self._cancelled: set[str] = set()
 
     # ------------------------------------------------------------------ API
     async def enqueue(self, task: Task) -> Task:
@@ -85,6 +90,28 @@ class OrchestrationEngine:
         self._pending = deque(t for t in self._pending if t.id != task_id)
         return len(self._pending) < before
 
+    def cancel_running(self, task_id: str) -> bool:
+        """Request cancellation of a currently-running task.
+
+        Returns True if the task is the active running task (or already
+        tracked for cancellation). The pipeline checks this flag after each
+        streamed event and stops cleanly, marking the task INTERRUPTED.
+
+        Also signals any live FORGE Hermes subprocess for this task so it
+        terminates promptly (does NOT touch the global Hermes gateway).
+        """
+        if self._running is not None and self._running.id == task_id:
+            self._cancelled.add(task_id)
+            # Best-effort: kill the FORGE subprocess if one is registered.
+            try:
+                from ai_dev_agent_forge.executor import cancel_task_execution
+                cancel_task_execution(task_id)
+            except Exception:
+                pass
+            return True
+        # If not the running task but was queued, let cancel_pending handle it.
+        return False
+
     # --------------------------------------------------------------- pump
     async def _pump(self) -> None:
         async with self._lock:
@@ -110,6 +137,9 @@ class OrchestrationEngine:
         try:
             async for event in executor.execute(task, ctx):
                 await self._apply(event, task)
+                # Stop the pipeline if the user cancelled this task.
+                if task.id in self._cancelled:
+                    break
             finished = True
         except asyncio.CancelledError:
             raise
@@ -123,7 +153,20 @@ class OrchestrationEngine:
                 {"type": "agent_status", "data": rec.model_dump()}
             )
 
-        if not finished and task.status not in (TaskStatus.DONE, TaskStatus.FAILED):
+        if task.id in self._cancelled:
+            # User cancelled: report INTERRUPTED, not FAILED/DONE.
+            task.status = TaskStatus.INTERRUPTED
+            task.error = task.error or "Task cancelled by user"
+            # Reset busy agents to idle.
+            for agent_id in ("atlas", "scout", "forge", "qa", "pulse"):
+                rec = self.registry.record(agent_id)
+                if rec.status != AgentStatus.IDLE:
+                    rec.status = AgentStatus.IDLE
+                    rec.activity = "Idle"
+                    await self._broadcast(
+                        {"type": "agent_status", "data": rec.model_dump()}
+                    )
+        elif not finished and task.status not in (TaskStatus.DONE, TaskStatus.FAILED):
             # Executor ended without a RESULT event: defensive default.
             task.status = TaskStatus.FAILED
             task.error = task.error or "Executor finished without a RESULT event."
@@ -176,6 +219,7 @@ class OrchestrationEngine:
                 kind=event.kind,
             )
             self.feed.append(item)
+            await self._persist_activity(item)
             await self._broadcast({"type": "feed", "data": item.model_dump()})
 
         if event.agent_status is not None:
@@ -192,3 +236,7 @@ class OrchestrationEngine:
 async def _maybe_await(result: Awaitable[None] | None) -> None:
     if result is not None:
         await result
+
+
+async def _noop_async(_: Any) -> None:
+    """Default no-op activity persister when no DB callback is wired."""

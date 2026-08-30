@@ -1,6 +1,9 @@
 """ai-dev-agent-forge: FORGE - Coding Agent."""
 
-from ai_dev_agent_forge.executor import HermesExecutor
+from ai_dev_agent_forge.executor import (
+    HermesExecutor,
+    cancel_task_execution,
+)
 from ai_dev_agent_forge.mock import MockForgeExecutor
 
-__all__ = ["MockForgeExecutor", "HermesExecutor"]
+__all__ = ["MockForgeExecutor", "HermesExecutor", "cancel_task_execution"]
