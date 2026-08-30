@@ -221,20 +221,20 @@ def test_forge_executor_uses_resolver():
 
 
 def test_qa_executor_uses_resolver():
-    """DeterministicQAExecutor._workspace_for must use workspace resolver."""
+    """DeterministicQAExecutor._workspace_for must use the shared helper."""
     from ai_dev_agent_qa.executor import DeterministicQAExecutor
     import inspect
     src = inspect.getsource(DeterministicQAExecutor._workspace_for)
-    assert "ws_mod.resolve" in src
+    assert "execution_workspace" in src
     assert "Path.home() / \"ai-dev-office\"" not in src
 
 
 def test_scout_executor_uses_resolver():
-    """_workspace_for in scout executor must use workspace resolver."""
+    """_workspace_for in scout executor must use the shared helper."""
     from ai_dev_agent_scout.executor import _workspace_for
     import inspect
     src = inspect.getsource(_workspace_for)
-    assert "ws_mod.resolve" in src
+    assert "execution_workspace" in src
     assert "Path.home() / \"ai-dev-office\"" not in src
 
 

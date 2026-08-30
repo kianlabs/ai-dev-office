@@ -56,15 +56,15 @@ class DeterministicQAExecutor:
         self._cancel_event = asyncio.Event()
 
     def _workspace_for(self, task: Task) -> Path:
-        """Resolve the task workspace via the centralized resolver.
+        """Resolve the authoritative execution workspace.
 
-        QA operates on the workspace FORGE already created, so we resolve
-        (not create) the path and validate it exists before running checks.
+        ``workspace_meta.workspace_path`` is the single source of truth so QA
+        tests the EXACT isolated project FORGE wrote to (git worktree / copied
+        project). The legacy resolver is only the fallback for
+        ``target_project=None`` empty workspaces.
         """
-        from ai_dev_shared import workspace as ws_mod
-        ws_root = getattr(self.ctx.settings, "forge_workspace_root", None)
-        info = ws_mod.resolve(task.id, workspace_root=ws_root)
-        return info.path
+        from ai_dev_shared.workspace import execution_workspace
+        return execution_workspace(task, self.ctx)
 
     async def execute(
         self,
@@ -99,6 +99,7 @@ class DeterministicQAExecutor:
                         "output": "",
                     }
                 ],
+                "workspace_path": str(workspace),
             }
             ctx.shared["qa_report"] = qa_report
             yield await r.tick(
@@ -139,6 +140,7 @@ class DeterministicQAExecutor:
                         "note": (
                             "No runnable deterministic checks detected in workspace"
                         ),
+                        "workspace_path": str(workspace),
                     }
                     ctx.shared["qa_report"] = qa_report
                     yield await r.tick(
@@ -161,6 +163,7 @@ class DeterministicQAExecutor:
                                 "output": "",
                             }
                         ],
+                        "workspace_path": str(workspace),
                     }
                     ctx.shared["qa_report"] = qa_report
                     yield await r.tick(
@@ -223,6 +226,7 @@ class DeterministicQAExecutor:
                     "failed_checks": [f["name"] for f in failures],
                     "details": failures,
                     "checks": check_results,
+                    "workspace_path": str(workspace),
                 }
                 ctx.shared["qa_report"] = qa_report
                 yield await r.tick(r.failure("QA dibatalkan oleh user"))
@@ -246,6 +250,7 @@ class DeterministicQAExecutor:
                     "failed_checks": [f["name"] for f in failures],
                     "details": failures,
                     "checks": check_results,
+                    "workspace_path": str(workspace),
                 }
                 ctx.shared["qa_report"] = qa_report
                 yield await r.tick(
@@ -264,6 +269,7 @@ class DeterministicQAExecutor:
                     "failed_checks": [],
                     "details": [],
                     "checks": check_results,
+                    "workspace_path": str(workspace),
                 }
                 ctx.shared["qa_report"] = qa_report
                 yield await r.tick(

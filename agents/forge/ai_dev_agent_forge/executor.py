@@ -275,22 +275,32 @@ class HermesExecutor:
             await self._cleanup_workspace()
 
     async def _create_workspace(self, task: Task) -> Path:
-        """Create isolated workspace directory for this task.
+        """Locate the isolated execution workspace for this task.
 
-        Uses the centralized workspace resolver so path computation is not
-        duplicated across FORGE, QA, and SCOUT.
+        Uses the shared ``execution_workspace()`` helper so the FORGE project
+        directory is EXACTLY ``workspace_meta.workspace_path`` — the isolated
+        git worktree or the copied project prepared by the engine. Only when
+        no workspace_meta exists (legacy empty workspaces / old tests) does it
+        create the blank workspace on demand.
         """
-        from ai_dev_shared import workspace as ws_mod
-        from ai_dev_shared.workspace import WorkspaceValidationError
+        from ai_dev_shared.workspace import (
+            execution_workspace,
+            WorkspaceValidationError,
+        )
 
-        # Workspace root from config; falls back to shared default.
-        ws_root = getattr(self.ctx.settings, "forge_workspace_root", None)
         try:
-            info = ws_mod.create(task.id, workspace_root=ws_root)
+            ws = execution_workspace(task, self.ctx)
         except WorkspaceValidationError as exc:
             raise RuntimeError(f"Workspace safety check failed: {exc}") from exc
 
-        return info.path
+        # Legacy fallback: create the blank workspace if it does not exist yet.
+        if not ws.is_dir():
+            try:
+                ws.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                raise RuntimeError(f"Failed to create workspace {ws}: {exc}") from exc
+
+        return ws
 
     def _build_prompt(self, task: Task) -> str:
         """Build Hermes prompt with workspace constraints and SCOUT context.
@@ -469,9 +479,10 @@ Complete this task inside your workspace, then provide a brief summary of what w
         # cannot inspect it through /workspace. Use the centralized resolver
         # so the runtime path is always consistent with the workspace path.
         from ai_dev_shared import workspace as ws_mod
+        from ai_dev_shared.workspace import workspace_root_from
         ws_info = ws_mod.resolve(
             self.task.id,
-            workspace_root=getattr(self.ctx.settings, "forge_workspace_root", None),
+            workspace_root=workspace_root_from(self.ctx.settings),
         )
         sandbox_home = ws_info.sandbox_home
         sandbox_hermes_home = sandbox_home / ".hermes"
@@ -682,6 +693,7 @@ Complete this task inside your workspace, then provide a brief summary of what w
                                 "commands": result["commands"],
                                 "warnings": result["warnings"],
                                 "error": result["error"],
+                                "workspace_path": str(self._workspace),
                             },
                             # Full raw output preserved backend-side for
                             # ATLAS/QA evidence; never surfaced as feed text.
@@ -705,6 +717,7 @@ Complete this task inside your workspace, then provide a brief summary of what w
                                 "commands": result["commands"],
                                 "warnings": result["warnings"],
                                 "error": result["error"],
+                                "workspace_path": str(self._workspace),
                             },
                             "forge_raw_output": result["raw_output"],
                         },
@@ -844,20 +857,46 @@ Complete this task inside your workspace, then provide a brief summary of what w
         always kept regardless of the setting.
         """
         from ai_dev_shared import workspace as ws_mod
+        from ai_dev_shared.workspace import (
+            cleanup_workspace_meta,
+            setting_from,
+            workspace_root_from,
+        )
 
-        cleanup_enabled = getattr(self.ctx.settings, "cleanup_workspace", False)
+        # Cancelled workspaces stay for inspection regardless of config.
+        if self._cancel_event.is_set():
+            return
+
+        cleanup_enabled = setting_from(
+            self.ctx.settings, "cleanup_workspace", False
+        )
         if not cleanup_enabled:
             return
 
-        if self._workspace is not None:
-            ws_info = ws_mod.resolve(
-                self.task.id,
-                workspace_root=getattr(
-                    self.ctx.settings, "forge_workspace_root", None
-                ),
+        try:
+            meta = self.ctx.shared.get("workspace_meta")
+            if meta is not None:
+                cleanup_workspace_meta(
+                    meta,
+                    workspace_root=workspace_root_from(self.ctx.settings),
+                )
+                logger.debug(
+                    "Workspace cleaned up after task %s", self.task.id[:12]
+                )
+            elif self._workspace is not None:
+                ws_info = ws_mod.resolve(
+                    self.task.id,
+                    workspace_root=workspace_root_from(self.ctx.settings),
+                )
+                ws_mod.cleanup(ws_info)
+                logger.debug(
+                    "Workspace cleaned up after task %s", self.task.id[:12]
+                )
+        except Exception as exc:  # noqa: BLE001 - cleanup must never crash runtime
+            logger.warning(
+                "Workspace cleanup failed for task %s: %s",
+                self.task.id[:12], exc,
             )
-            ws_mod.cleanup(ws_info)
-            logger.debug("Workspace cleaned up after task %s", self.task.id[:12])
 
 
 def cancel_task_execution(task_id: str) -> bool:

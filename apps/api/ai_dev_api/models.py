@@ -25,6 +25,8 @@ class TaskRow(Base):
     subtasks: Mapped[str] = mapped_column(Text, default="[]")
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    target_project: Mapped[str | None] = mapped_column(Text, nullable=True)
+    workspace_meta: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[float] = mapped_column(Float)
     updated_at: Mapped[float] = mapped_column(Float)
 
@@ -38,6 +40,8 @@ class TaskRow(Base):
             subtasks=[Subtask(**s) for s in raw_subtasks],
             summary=self.summary,
             error=self.error,
+            target_project=self.target_project,
+            workspace_meta=json.loads(self.workspace_meta) if self.workspace_meta else None,
             created_at=self.created_at,
             updated_at=self.updated_at,
         )
@@ -52,6 +56,8 @@ class TaskRow(Base):
             subtasks=json.dumps([s.model_dump() for s in task.subtasks]),
             summary=task.summary,
             error=task.error,
+            target_project=task.target_project,
+            workspace_meta=json.dumps(task.workspace_meta) if task.workspace_meta else None,
             created_at=task.created_at,
             updated_at=task.updated_at,
         )

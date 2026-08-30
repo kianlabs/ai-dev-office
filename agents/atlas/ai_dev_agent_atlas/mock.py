@@ -254,6 +254,21 @@ class MockAtlasExecutor:
                 task_status=TaskStatus.REVIEW,
             )
         )
+
+        # ── Workspace diff/review metadata (Phase 3.5b) ──────────────────
+        # Compute real change summary from the isolated workspace so ATLAS
+        # can report what actually changed vs the source project.
+        ws_result_dict: dict = {}
+        ws_meta = ctx.shared.get("workspace_meta")
+        if ws_meta is not None:
+            try:
+                from ai_dev_shared.workspace import compute_workspace_result
+                ws_result = compute_workspace_result(ws_meta)
+                ws_result_dict = ws_result.to_dict()
+                ctx.shared["workspace_result"] = ws_result
+            except Exception:
+                pass  # Non-fatal: diff metadata is best-effort
+
         yield await r.tick(
             r.review(
                 "Selected specialist workflow completed successfully."
@@ -269,6 +284,7 @@ class MockAtlasExecutor:
                     "qa": qa_score,
                     "health": health_status,
                     "repair_attempts": repair_attempts,
+                    "workspace_result": ws_result_dict,
                 },
             )
         )

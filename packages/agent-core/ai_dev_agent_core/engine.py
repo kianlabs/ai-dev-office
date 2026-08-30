@@ -136,6 +136,55 @@ class OrchestrationEngine:
             registry=self.registry,
             seed=int(task.id[:8], 16),
         )
+
+        # ── Workspace preparation (Phase 3.5b) ────────────────────────────
+        # Prepare the isolated workspace BEFORE any specialist agent runs.
+        # Result stored in ctx.shared["workspace_meta"] so SCOUT/FORGE/QA
+        # all read from one source of truth.
+        if task.target_project is not None or True:
+            # Always call prepare_workspace — handles both null (empty mode)
+            # and non-null (git-worktree/copy) target projects.
+            try:
+                from ai_dev_shared.workspace import (
+                    prepare_workspace,
+                    DirtyRepositoryError,
+                    WorkspaceValidationError,
+                    workspace_root_from,
+                )
+                ws_root = workspace_root_from(self.settings)
+                meta = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: prepare_workspace(
+                        task.id,
+                        task.target_project,
+                        workspace_root=ws_root,
+                    ),
+                )
+                ctx.shared["workspace_meta"] = meta
+                task.workspace_meta = meta.to_dict()
+                task.updated_at = __import__("time").time()
+                if self._persist_task is not None:
+                    await _maybe_await(self._persist_task(task))
+                await self._emit_task(task, "task_status")
+            except DirtyRepositoryError as exc:
+                task.status = TaskStatus.FAILED
+                task.error = str(exc)
+                task.updated_at = __import__("time").time()
+                if self._persist_task is not None:
+                    await _maybe_await(self._persist_task(task))
+                await self._emit_task(task, "task_status")
+                await self._broadcast({"type": "task_finished", "data": task.model_dump()})
+                return
+            except WorkspaceValidationError as exc:
+                task.status = TaskStatus.FAILED
+                task.error = f"Workspace validation failed: {exc}"
+                task.updated_at = __import__("time").time()
+                if self._persist_task is not None:
+                    await _maybe_await(self._persist_task(task))
+                await self._emit_task(task, "task_status")
+                await self._broadcast({"type": "task_finished", "data": task.model_dump()})
+                return
+
         executor = self.registry.executor_for(self.orchestrator_agent, task, ctx)
 
         finished = False

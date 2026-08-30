@@ -87,7 +87,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         broadcast=bus.broadcast,
         persist_task=_persist_task,
         persist_activity=_persist_activity,
-        settings={"speed": settings.speed},
+        settings={
+            "speed": settings.speed,
+            "forge_workspace_root": settings.forge_workspace_root,
+            "cleanup_workspace": settings.cleanup_workspace,
+        },
     )
     state = AppState(registry=registry, engine=engine, bus=bus, session_factory=session_factory)
     set_state(state)

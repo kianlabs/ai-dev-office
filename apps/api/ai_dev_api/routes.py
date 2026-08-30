@@ -25,6 +25,11 @@ State = Annotated[AppState, Depends(get_state)]
 class TaskCreate(BaseModel):
     title: str = Field(min_length=3, max_length=300)
     description: str = Field(default="", max_length=2000)
+    # Optional path to the local project FORGE/QA/SCOUT should work on.
+    # When supplied, the workspace is prepared as an isolated git worktree
+    # (clean repo) or bounded copy (non-git). The source project is never
+    # modified. Rejected if the repo has uncommitted changes.
+    target_project: str | None = Field(default=None, max_length=4096)
 
 
 def _stats(tasks: list[Task]) -> dict[str, Any]:
@@ -77,7 +82,30 @@ async def list_tasks(state: State, session: Session) -> list[dict[str, Any]]:
 
 @router.post("/tasks", status_code=201)
 async def create_task(payload: TaskCreate, state: State, session: Session) -> dict[str, Any]:
-    task = Task(title=payload.title, description=payload.description)
+    from ai_dev_shared.workspace import (
+        validate_target_project,
+        WorkspaceValidationError,
+        DirtyRepositoryError,
+    )
+
+    # Validate target_project before creating the task record.
+    if payload.target_project:
+        try:
+            validate_target_project(payload.target_project)
+        except DirtyRepositoryError as exc:
+            raise HTTPException(
+                409,
+                f"Target project has uncommitted changes. "
+                f"Commit or discard them first. ({exc})",
+            )
+        except WorkspaceValidationError as exc:
+            raise HTTPException(422, f"Invalid target_project: {exc}")
+
+    task = Task(
+        title=payload.title,
+        description=payload.description,
+        target_project=payload.target_project,
+    )
     session.add(TaskRow.from_task(task))
     await session.commit()
     await state.engine.enqueue(task)

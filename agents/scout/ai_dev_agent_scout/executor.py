@@ -109,15 +109,16 @@ def _bounded_read(path: Path) -> str:
         return ""
 
 
-def _workspace_for(task: Task) -> Path:
-    """Resolve the task workspace via the centralized resolver.
+def _workspace_for(task: Task, ctx: ExecutionContext) -> Path:
+    """Resolve the authoritative execution workspace via the shared helper.
 
-    SCOUT inspects the workspace FORGE will write to (or has written to).
-    Resolution is intentionally identical across all three agents.
+    ``workspace_meta.workspace_path`` (prepared by the engine) is the single
+    source of truth — SCOUT inspects the exact isolated project SCOUT/FORGE/QA
+    all operate on (git worktree / copied project). The legacy resolver is
+    only the fallback for ``target_project=None`` empty workspaces.
     """
-    from ai_dev_shared import workspace as ws_mod
-    info = ws_mod.resolve(task.id)
-    return info.path
+    from ai_dev_shared.workspace import execution_workspace
+    return execution_workspace(task, ctx)
 
 
 class RealScoutExecutor:
@@ -147,16 +148,23 @@ class RealScoutExecutor:
             r.working("Memeriksa struktur repository", task_status=TaskStatus.RUNNING)
         )
 
-        # ── 1. Locate workspace or fall back to repo root ──────────────────
-        workspace = _workspace_for(task)
+        # ── 1. Locate the isolated execution workspace ─────────────────────
+        workspace = _workspace_for(task, ctx)
+        has_meta = ctx.shared.get("workspace_meta") is not None
         if workspace.is_dir():
             scan_root = workspace
             scope = "workspace"
+        elif has_meta:
+            # workspace_meta exists (prepared project) but is missing on disk:
+            # do NOT fall back to the repo root — the scan is simply empty.
+            scan_root = workspace
+            scope = "workspace"
         else:
+            # True legacy mode: no workspace_meta at all.
             scan_root = _repo_root()
             scope = "repository"
 
-        yield await r.tick(r.say(f"Scan root: {scan_root} (scope={scope})"))
+        yield await r.tick(r.say(f"Memindai project terisolasi (scope={scope})"))
 
         if self._cancel_requested:
             yield await r.tick(r.failure("SCOUT dibatalkan"))
@@ -239,6 +247,13 @@ class RealScoutExecutor:
             "scope": scope,
             "files_scanned": len(file_tree),
             "external_research": bool(external_note),
+            # Backend metadata: the exact isolated directory SCOUT inspected
+            # (equals workspace_meta.workspace_path). Kept out of the activity
+            # feed text; consumed by ATLAS/QA for path verification.
+            "workspace_path": str(scan_root),
+            "workspace_mode": str(
+                getattr(ctx.shared.get("workspace_meta"), "mode", scope)
+            ),
         }
 
         # Write to shared context — the ATLAS→FORGE channel.
