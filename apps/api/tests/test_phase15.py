@@ -607,3 +607,151 @@ def test_factory_passes_config_to_executor():
     assert ex.model == ""
     assert ex.provider == ""
     assert ex.max_turns == 12
+
+
+# ---------------------------------------------------------------------------
+# Tests 26-32: Phase 2.1 — FORGE completion output normalization
+# ---------------------------------------------------------------------------
+
+def _run_forge_with_output(output: str, error: str = "", returncode: int = 0):
+    """Drive HermesExecutor end-to-end but replace the subprocess + workspace
+    so completion normalization runs against a canned Hermes narrative."""
+    from ai_dev_agent_core import OrchestrationEngine
+
+    engine = OrchestrationEngine(AgentRegistry(), orchestrator_agent="atlas")
+    task = _make_task()
+
+    # Real workspace so changed_files detection finds actual files.
+    ws = Path.home() / "ai-dev-office" / "workspaces" / task.id[:12]
+    if ws.exists():
+        import shutil as _sh
+        _sh.rmtree(ws)
+    ws.mkdir(parents=True, exist_ok=True)
+    (ws / "calculator.py").write_text("def add(a, b): return a + b\n")
+    (ws / "test_calculator.py").write_text("def test_add(): assert True\n")
+
+    events: list[AgentEvent] = []
+
+    class _FakeForge(HermesExecutor):
+        async def _run_hermes_streaming(self, prompt, runtime):
+            # Inject canned raw output, then a RESULT so normalization runs.
+            self._workspace = ws
+            yield await runtime.tick(runtime.working("coding"))
+            # Simulate completion by calling the real handler path:
+            result = self._build_forge_result(output, error, returncode == 0)
+            if returncode == 0:
+                yield await runtime.tick(runtime.say(result["summary"]))
+                yield await runtime.tick(runtime.idle("Idle"))
+                yield await runtime.tick(
+                    runtime.result(TaskStatus.DONE, result["summary"],
+                                   meta={"forge_result": {k: result[k] for k in
+                                         ("success", "changed_files", "commands",
+                                          "warnings", "error")}})
+                )
+            else:
+                yield await runtime.tick(runtime.failure("fail"))
+                yield await runtime.tick(
+                    runtime.result(TaskStatus.FAILED, "fail",
+                                   meta={"forge_result": {k: result[k] for k in
+                                         ("success", "changed_files", "commands",
+                                          "warnings", "error")}})
+                )
+
+    ctx = ExecutionContext(task=task, settings={}, registry=engine.registry)
+    ex = _FakeForge(task, ctx)
+
+    async def go():
+        async for ev in ex.execute(task, ctx):
+            events.append(ev)
+
+    _run(go())
+    import shutil as _sh
+    _sh.rmtree(ws, ignore_errors=True)
+    return events
+
+
+def test_forge_completion_strips_qa_pass_claim():
+    """FORGE completion must not echo 'QA PASS' / 'HASIL QA' narrative."""
+    raw = (
+        "Created calculator.py and test_calculator.py\n"
+        "HASIL QA - PASS\n"
+        "Semua test PASSED\n"
+        "Verifikasi dilakukan\n"
+        "Task completed successfully."
+    )
+    events = _run_forge_with_output(raw)
+    blob = " ".join(str(getattr(e, "message", "")) for e in events)
+    assert "QA PASS" not in blob
+    assert "HASIL QA" not in blob
+    assert "Semua test PASSED" not in blob
+    assert "Verifikasi dilakukan" not in blob
+
+
+def test_forge_reports_implementation_only():
+    """FORGE summary must state implementation done + real changed files."""
+    raw = "Created calculator.py and test_calculator.py\nTask completed successfully."
+    events = _run_forge_with_output(raw)
+    result_events = [e for e in events if e.kind == EventKind.RESULT]
+    assert result_events
+    summary = result_events[-1].message
+    assert "Implementasi selesai" in summary
+    assert "calculator.py" in summary
+    assert "test_calculator.py" in summary
+
+
+def test_forge_changed_files_preserved_from_workspace():
+    """changed_files come from the real workspace listing, not narrative."""
+    raw = "done"
+    events = _run_forge_with_output(raw)
+    result_events = [e for e in events if e.kind == EventKind.RESULT]
+    fr = result_events[-1].meta["forge_result"]
+    assert "calculator.py" in fr["changed_files"]
+    assert "test_calculator.py" in fr["changed_files"]
+
+
+def test_tirith_warning_not_in_completion_feed():
+    """The tirith internal notice must not pollute FORGE completion text."""
+    raw = (
+        "⚠ tirith security scanner enabled but not available — command scanning "
+        "will use pattern matching only\n"
+        "Created README.md\nTask completed successfully."
+    )
+    events = _run_forge_with_output(raw)
+    blob = " ".join(str(getattr(e, "message", "")) for e in events)
+    assert "tirith security scanner enabled but not available" not in blob
+
+
+def test_tirith_fallback_still_reported_as_warning():
+    """Pattern-matching fallback is surfaced once as a concise warning, not dropped."""
+    raw = (
+        "⚠ tirith security scanner enabled but not available — command scanning "
+        "will use pattern matching only\nCreated README.md"
+    )
+    events = _run_forge_with_output(raw)
+    result_events = [e for e in events if e.kind == EventKind.RESULT]
+    fr = result_events[-1].meta["forge_result"]
+    assert any("tirith" in w.lower() for w in fr["warnings"])
+    # Fallback is explicitly noted as still active (sandbox intact).
+    assert any("fallback" in w.lower() or "tetap aktif" in w.lower() for w in fr["warnings"])
+
+
+def test_forge_does_not_claim_qa_source_of_truth():
+    """QA remains the PASS/FAIL authority; FORGE result carries no PASS/FAIL
+    verification verdict in its summary."""
+    raw = "HASIL QA\nQA PASS\nVerification passed\nImplemented feature X."
+    events = _run_forge_with_output(raw)
+    result_events = [e for e in events if e.kind == EventKind.RESULT]
+    summary = result_events[-1].message
+    # Implementation is reported; verification verdict is absent.
+    assert "Implemented feature X" in summary or "feature X" in summary
+    assert "QA PASS" not in summary
+    assert "Verification passed" not in summary
+
+
+def test_forge_real_command_evidence_preserved_if_present():
+    """Commands Hermes actually reported running are kept (best-effort)."""
+    raw = "Ran: $ npm install\nThen $ node -e \"1+1\"\nDone."
+    events = _run_forge_with_output(raw)
+    result_events = [e for e in events if e.kind == EventKind.RESULT]
+    fr = result_events[-1].meta["forge_result"]
+    assert any("npm install" in c for c in fr["commands"])

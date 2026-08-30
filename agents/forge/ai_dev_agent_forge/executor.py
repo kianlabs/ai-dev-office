@@ -32,10 +32,12 @@ Changes from blocking version:
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
 import shutil
 import time
 from pathlib import Path
-from typing import AsyncIterator
+from typing import AsyncIterator, TypedDict
 
 from ai_dev_agent_core import ExecutionContext
 from ai_dev_shared import AgentEvent, Task
@@ -43,6 +45,54 @@ from ai_dev_shared.constants import AgentStatus, EventKind, TaskStatus
 
 # Default heartbeat interval (seconds) for periods with no real activity.
 DEFAULT_HEARTBEAT_INTERVAL = 15
+
+logger = logging.getLogger("ai_dev_agent_forge")
+
+# Lines Hermes emits that are NOT task progress and must not pollute the
+# user-facing feed. The tirith warning is an internal security-scanner notice;
+# the pattern-matching fallback it describes stays active (we never disable
+# the sandbox), we just don't echo the notice as FORGE progress.
+_TIRITH_NOISE = "tirith security scanner enabled but not available"
+
+# FORGE must not take ownership of the QA / verification stage. These phrases
+# indicate Hermes narrated a QA-style conclusion; since QA is the source of
+# truth for PASS/FAIL/NOT_VERIFIED, such lines are excluded from the
+# user-facing completion summary (the raw output is still preserved backend-side).
+_QA_CLAIM_PATTERNS = (
+    "hasil qa",
+    "qa pass",
+    "qa fail",
+    "qa gate",
+    "qa verified",
+    "qa selesai",
+    "semua test",
+    "all tests passed",
+    "test passed",
+    "test lolos",
+    "verifikasi dilakukan",
+    "verification complete",
+    "verification passed",
+    # Verification-stage claims Hermes sometimes appends to its summary.
+    "verifikasi",
+    "verification",
+    "unit tests",
+    "berhasil dijalankan",
+    "lolos syntax",
+    "syntax check",
+    "passed",
+    "lolos",
+)
+
+
+class _ForgeResult(TypedDict):
+    success: bool
+    summary: str
+    changed_files: list[str]
+    commands: list[str]
+    warnings: list[str]
+    error: str
+    raw_output: str
+    raw_error: str
 
 # Global semaphore to enforce FORGE concurrency = 1
 # Prevents multiple Hermes executions running simultaneously
@@ -534,8 +584,10 @@ Complete this task inside your workspace, then provide a brief summary of what w
                         text = line.decode("utf-8", errors="replace").strip()
                         if text:
                             error_lines.append(text)
-                            # Yield stderr as progress (warnings, etc.)
-                            if not text.startswith("⚠"):
+                            # Yield stderr as progress (warnings, etc.) but
+                            # never surface the internal tirith notice as FORGE
+                            # progress — it is logged once at completion instead.
+                            if not text.startswith("⚠") and not self._is_noise_line(text):
                                 yield await r.tick(r.say(f"[stderr] {text[:100]}"))
                 except Exception:
                     pass
@@ -599,20 +651,51 @@ Complete this task inside your workspace, then provide a brief summary of what w
             output = "\n".join(output_lines)
             error = "\n".join(error_lines)
 
-            if proc.returncode == 0:
-                yield await r.tick(r.say(f"Hermes completed: {output[:200]}"))
+            success = proc.returncode == 0
+            result = self._build_forge_result(output, error, success)
+
+            if success:
+                # User-facing feed: concise implementation summary only.
+                # QA ownership belongs to the QA stage, not FORGE.
+                yield await r.tick(r.say(result["summary"]))
                 yield await r.tick(r.idle("Idle"))
                 yield await r.tick(
-                    r.result(TaskStatus.DONE, f"Task completed via Hermes: {output[:500]}")
+                    r.result(
+                        TaskStatus.DONE,
+                        result["summary"],
+                        meta={
+                            "forge_result": {
+                                "success": result["success"],
+                                "changed_files": result["changed_files"],
+                                "commands": result["commands"],
+                                "warnings": result["warnings"],
+                                "error": result["error"],
+                            },
+                            # Full raw output preserved backend-side for
+                            # ATLAS/QA evidence; never surfaced as feed text.
+                            "forge_raw_output": result["raw_output"],
+                        },
+                    )
                 )
             else:
-                yield await r.tick(r.say(f"Hermes failed: {error}"))
+                feed_error = result["error"] or "Hermes execution failed"
+                yield await r.tick(r.say(f"Implementasi gagal: {feed_error[:300]}"))
                 yield await r.tick(r.failure("Hermes execution failed"))
                 yield await r.tick(
                     r.result(
                         TaskStatus.FAILED,
-                        f"Hermes execution failed: {error}",
-                        meta={"error": error},
+                        f"Implementasi gagal: {feed_error[:500]}",
+                        meta={
+                            "error": feed_error,
+                            "forge_result": {
+                                "success": result["success"],
+                                "changed_files": result["changed_files"],
+                                "commands": result["commands"],
+                                "warnings": result["warnings"],
+                                "error": result["error"],
+                            },
+                            "forge_raw_output": result["raw_output"],
+                        },
                     )
                 )
 
@@ -626,6 +709,119 @@ Complete this task inside your workspace, then provide a brief summary of what w
     def request_cancel(self):
         """Request cancellation of the running Hermes process."""
         self._cancel_event.set()
+
+    # ------------------------------------------------------------------ normalize
+    @staticmethod
+    def _is_noise_line(text: str) -> bool:
+        """True if the line is internal noise (tirith notice) that should not
+        be surfaced as FORGE task progress."""
+        return _TIRITH_NOISE in text.lower()
+
+    @staticmethod
+    def _is_qa_claim_line(text: str) -> bool:
+        """True if the line has FORGE narrating a QA/verification conclusion.
+        FORGE must not own the QA stage, so such lines are excluded from the
+        user-facing completion summary."""
+        low = text.lower()
+        return any(pat in low for pat in _QA_CLAIM_PATTERNS)
+
+    def _real_changed_files(self) -> list[str]:
+        """List files FORGE actually produced in the workspace (real evidence,
+        not parsed from narrative). Excludes runtime state and build caches."""
+        if self._workspace is None or not self._workspace.is_dir():
+            return []
+        files = [
+            str(p.relative_to(self._workspace))
+            for p in self._workspace.rglob("*")
+            if p.is_file()
+            and ".ado-runtime" not in p.parts
+            and "__pycache__" not in p.parts
+            and not p.name.endswith(".pyc")
+        ]
+        # Sort for stable output; bound to a reasonable number.
+        files.sort()
+        return files[:50]
+
+    def _build_forge_result(
+        self, output: str, error: str, success: bool
+    ) -> _ForgeResult:
+        """Normalize raw Hermes output into a concise, structured FORGE result.
+
+        FORGE reports ONLY its own implementation work. QA-style conclusions and
+        internal warnings are stripped from the user-facing summary. The full
+        raw output is preserved backend-side in ``raw_output`` so ATLAS/QA can
+        still receive relevant evidence without fabricating or altering facts.
+        """
+        # Drop internal noise (tirith) and QA-claim lines from the visible text.
+        visible_lines: list[str] = []
+        warnings: list[str] = []
+        tirith_seen = False
+
+        for raw in (output, error):
+            for line in raw.splitlines():
+                text = line.strip()
+                if not text:
+                    continue
+                low = text.lower()
+                if _TIRITH_NOISE in low:
+                    if not tirith_seen:
+                        tirith_seen = True
+                        warnings.append(
+                            "tirith scanner tidak tersedia — fallback pattern "
+                            "matching tetap aktif (sandbox bwrap)"
+                        )
+                        logger.warning(
+                            "tirith security scanner unavailable for task %s; "
+                            "using pattern-matching fallback (sandbox intact)",
+                            self.task.id,
+                        )
+                    continue
+                if self._is_qa_claim_line(text):
+                    continue
+                visible_lines.append(text)
+
+        # Concise implementation summary (bounded).
+        summary_body = " ".join(visible_lines).strip()
+        if len(summary_body) > 600:
+            summary_body = summary_body[:600].rstrip() + "…"
+
+        changed_files = self._real_changed_files()
+
+        # Best-effort command evidence Hermes reported running. We look for
+        # shell-prompt style lines ("$ cmd" / "> cmd", anywhere in the line)
+        # or explicit tool invocations. Empty if not present — never invented.
+        commands = []
+        for line in visible_lines:
+            m = re.search(r"[\$>]\s+(\S.*)", line)
+            if m:
+                commands.append(m.group(1).strip())
+            elif re.match(
+                r"^(npm|node|npx|python|python3|git|cargo|go|make|pytest|pnpm|yarn)\b",
+                line,
+            ):
+                commands.append(line.strip())
+        commands = commands[:10]
+
+        heading = "Implementasi selesai." if success else "Implementasi gagal."
+        if changed_files:
+            file_block = "File berubah: " + ", ".join(changed_files)
+        else:
+            file_block = "Tidak ada file terdeteksi di workspace."
+
+        summary = f"{heading} {file_block}"
+        if summary_body:
+            summary += f" {summary_body}"
+
+        return {
+            "success": success,
+            "summary": summary,
+            "changed_files": changed_files,
+            "commands": commands,
+            "warnings": warnings,
+            "error": error.strip() if not success and error.strip() else "",
+            "raw_output": output,
+            "raw_error": error,
+        }
 
     async def _cleanup_workspace(self) -> None:
         """Remove workspace after task completion.
